@@ -1409,14 +1409,24 @@ async def _seed(db: Database, status: str = "executing") -> tuple[str, str]:
     token = generate_token()
     async with db.session() as s:
         proj = Project(name="p", path="/tmp/p")
-        s.add(proj); await s.commit(); await s.refresh(proj)
+        s.add(proj)
+        await s.commit()
+        await s.refresh(proj)
         wt = Worktree(project_id=proj.id, path="/tmp/p/wt", branch="main")
-        s.add(wt); await s.commit(); await s.refresh(wt)
+        s.add(wt)
+        await s.commit()
+        await s.refresh(wt)
         sess = ClaudeSession(
-            worktree_id=wt.id, status=status, pid=1, jail_id="j",
-            started_at=datetime.now(UTC), hook_token=token,
+            worktree_id=wt.id,
+            status=status,
+            pid=1,
+            jail_id="j",
+            started_at=datetime.now(UTC),
+            hook_token=token,
         )
-        s.add(sess); await s.commit(); await s.refresh(sess)
+        s.add(sess)
+        await s.commit()
+        await s.refresh(sess)
         return sess.id, token
 
 
