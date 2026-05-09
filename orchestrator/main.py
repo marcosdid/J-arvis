@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from orchestrator.api.projects import router as projects_router
+from orchestrator.api.worktrees import router as worktrees_router
 from orchestrator.core.health import health_status
 from orchestrator.store.database import Database
 
@@ -19,6 +20,7 @@ def create_app(database: Database | None = None, ui_dist: Path | None = None) ->
 
     if database is not None:
         app.include_router(projects_router, prefix="/api")
+        app.include_router(worktrees_router, prefix="/api")
 
     if ui_dist is not None and ui_dist.is_dir():
         app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")
