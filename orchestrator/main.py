@@ -10,6 +10,7 @@ from orchestrator.api.sessions import router as sessions_router
 from orchestrator.api.worktrees import router as worktrees_router
 from orchestrator.config import RuntimeMode, Settings
 from orchestrator.core.health import health_status
+from orchestrator.hooks.router import router as hooks_router
 from orchestrator.sandbox.aijail import (
     AiJailRuntime,
     SubprocessProcessOps,
@@ -34,6 +35,10 @@ def create_app(
     app = FastAPI(title="J-arvis Orchestrator", version="0.0.1", lifespan=lifespan)
     app.state.database = database
     app.state.runtime = runtime
+    app.state.token_registry = getattr(app.state, "token_registry", None)
+    app.state.ws_broadcaster = getattr(app.state, "ws_broadcaster", None)
+    app.state.notifier = getattr(app.state, "notifier", None)
+    app.state.hook_base_url = getattr(app.state, "hook_base_url", None)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -44,6 +49,7 @@ def create_app(
         app.include_router(worktrees_router, prefix="/api")
         if runtime is not None:
             app.include_router(sessions_router, prefix="/api")
+        app.include_router(hooks_router, prefix="/api")
 
     if ui_dist is not None and ui_dist.is_dir():
         app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")

@@ -4,6 +4,9 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orchestrator.events.broadcaster import WsBroadcaster
+from orchestrator.hooks.tokens import TokenRegistry
+from orchestrator.notifications.sink import NotifierSink
 from orchestrator.sandbox.runtime import SessionRuntime
 from orchestrator.store.database import Database
 
@@ -27,3 +30,24 @@ async def get_db_session(
 ) -> AsyncIterator[AsyncSession]:
     async with database.session() as s:
         yield s
+
+
+def resolve_token_registry(request: Request) -> TokenRegistry:
+    reg: TokenRegistry | None = request.app.state.token_registry
+    if reg is None:  # pragma: no cover
+        raise RuntimeError("router mounted without token registry")
+    return reg
+
+
+def resolve_broadcaster(request: Request) -> WsBroadcaster:
+    bc: WsBroadcaster | None = request.app.state.ws_broadcaster
+    if bc is None:  # pragma: no cover
+        raise RuntimeError("router mounted without broadcaster")
+    return bc
+
+
+def resolve_notifier(request: Request) -> NotifierSink:
+    n: NotifierSink | None = request.app.state.notifier
+    if n is None:  # pragma: no cover
+        raise RuntimeError("router mounted without notifier")
+    return n
