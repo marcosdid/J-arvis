@@ -1,0 +1,29 @@
+from collections.abc import AsyncIterator
+from typing import Annotated
+
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from orchestrator.sandbox.runtime import SessionRuntime
+from orchestrator.store.database import Database
+
+
+def resolve_database(request: Request) -> Database:
+    db: Database | None = request.app.state.database
+    if db is None:  # pragma: no cover
+        raise RuntimeError("router mounted without a database")
+    return db
+
+
+def resolve_runtime(request: Request) -> SessionRuntime:
+    runtime: SessionRuntime | None = request.app.state.runtime
+    if runtime is None:  # pragma: no cover
+        raise RuntimeError("router mounted without a runtime")
+    return runtime
+
+
+async def get_db_session(
+    database: Annotated[Database, Depends(resolve_database)],
+) -> AsyncIterator[AsyncSession]:
+    async with database.session() as s:
+        yield s
