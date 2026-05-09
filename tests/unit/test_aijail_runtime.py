@@ -154,8 +154,11 @@ async def test_aijail_runtime_handle_id_is_uuid_not_pid_based() -> None:
     first = await runtime.spawn(Path("/tmp/a"))
     second = await runtime.spawn(Path("/tmp/b"))
 
+    # Structural check: handle.id is a uuid4().hex — 32 lowercase hex chars,
+    # independent of PID. Two spawns must yield distinct ids.
     assert first.id != second.id
-    assert "42" not in first.id  # PID must not leak into the handle id
+    assert len(first.id) == 32
+    assert all(c in "0123456789abcdef" for c in first.id)
 
 
 @pytest.mark.unit
