@@ -1,8 +1,9 @@
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from orchestrator.api.projects import router as projects_router
@@ -56,6 +57,15 @@ def create_app(
             app.include_router(sessions_router, prefix="/api")
         app.include_router(hooks_router, prefix="/api")
         app.include_router(ws_router)
+
+        if os.environ.get("JARVIS_DEBUG") == "1":  # pragma: no cover
+            @app.get("/api/_debug/token/{session_id}")
+            async def _debug_token(session_id: str, request: Request) -> dict:
+                registry = request.app.state.token_registry
+                for token, sid in registry._map.items():
+                    if sid == session_id:
+                        return {"token": token}
+                raise HTTPException(status_code=404)
 
     if ui_dist is not None and ui_dist.is_dir():
         app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")

@@ -41,6 +41,7 @@ def orchestrator_url(orchestrator_image: DockerImage) -> Generator[str]:
         DockerContainer(str(orchestrator_image))
         .with_exposed_ports(8000)
         .with_env("JARVIS_RUNTIME", "null")
+        .with_env("JARVIS_DEBUG", "1")
         .waiting_for(wait)
     )
     try:
@@ -66,6 +67,7 @@ def orchestrator_with_repo(
         DockerContainer(str(orchestrator_image))
         .with_exposed_ports(8000)
         .with_env("JARVIS_RUNTIME", "null")
+        .with_env("JARVIS_DEBUG", "1")
         .waiting_for(wait)
     )
     try:
