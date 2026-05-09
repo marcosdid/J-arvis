@@ -8,11 +8,11 @@
 from collections.abc import Sequence
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from orchestrator.store.models import Project
+from orchestrator.store.models import Project, Task
 
 
 class PathDoesNotExistError(Exception):
@@ -28,6 +28,10 @@ class ProjectNotFoundError(Exception):
 
 
 class DuplicateProjectError(Exception):
+    pass
+
+
+class ProjectHasTasksError(Exception):
     pass
 
 
@@ -62,5 +66,12 @@ async def delete_project(session: AsyncSession, project_id: str) -> None:
     project = await session.get(Project, project_id)
     if project is None:
         raise ProjectNotFoundError(f"project not found: {project_id}")
+    count = (await session.execute(
+        select(func.count()).select_from(Task).where(Task.project_id == project_id)
+    )).scalar_one()
+    if count > 0:
+        raise ProjectHasTasksError(
+            f"project has {count} task(s); discard them before deleting"
+        )
     await session.delete(project)
     await session.commit()
