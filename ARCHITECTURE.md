@@ -42,7 +42,8 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
 - `Worktree(id, project_id, path, branch, current_task_id?)`
 - `Task(id, project_id, title, description, state, template, permission_profile, created_at)`
   - `state ∈ {idea, ready, in_progress, review, done, discarded}`
-- `Session(id, task_id, worktree_id, jail_id, status, started_at, ended_at?, transcript_path)`
+- `ClaudeSession(id, task_id, worktree_id, jail_id, status, pid, started_at, ended_at?, transcript_path)`
+  - Classe nomeada `ClaudeSession` para não colidir com `sqlalchemy.orm.Session`/`AsyncSession`. Tabela `sessions`.
   - `status ∈ {executing, awaiting_approval, awaiting_response, idle, error, done}`
 - `ApprovalRequest(id, session_id, tool, args_json, state, created_at, decided_at?)`
   - `state ∈ {pending, approved, denied, expired}`

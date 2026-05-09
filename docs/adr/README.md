@@ -22,3 +22,4 @@ Registro de decisões arquiteturais. Estilo Michael Nygard.
 | [0005](0005-run-from-panel-manifesto-explicito.md) | Run from Panel: manifesto explícito (`.orchestrator/run.yml`) com bootstrap por Claude | Accepted | 2026-05-08 |
 | [0006](0006-db-descartavel-por-execucao.md) | DB do Run from Panel: container Docker descartável por execução | Accepted | 2026-05-08 |
 | [0007](0007-task-first-em-vez-de-session-first.md) | Modelo de domínio: task-first em vez de session-first | Accepted | 2026-05-08 |
+| [0008](0008-sessao-em-terminal-nativo-do-desktop.md) | Sessão de Claude Code abre em terminal nativo do desktop | Accepted | 2026-05-08 |
