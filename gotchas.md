@@ -145,3 +145,20 @@ em `/proc/self/status`, namespaces `net/pid/mnt/ipc/cgroup` listados em
 (no terminal nativo do host, não dentro de uma sessão Claude já jailed).
 Equivalente ao item "Demo B" da DoD da F2 — validação manual a partir
 do host. F0/F1 do roadmap são todos não-E2E e cabem dentro da jaula.
+
+## 10. `fileConfig` do alembic silencia uvicorn no startup
+
+**Regra:** ao rodar migrations alembic dentro do lifespan do FastAPI,
+o `alembic/env.py` chama `fileConfig(config.config_file_name)` que por
+default usa `disable_existing_loggers=True`. Isso desliga o logger
+"uvicorn" e a mensagem `Application startup complete` + `Uvicorn running
+on http://...:port` somem do stderr.
+
+**Como detectar:** após rodar `uv run uvicorn orchestrator.main:app
+--port 8765`, o terminal mostra os logs de migration (`Running upgrade
+0001 -> 0002, hook columns`) e fica em silêncio. Usuário acha que o
+daemon não subiu, mas `curl http://localhost:8765/health` retorna 200
+normalmente — o server tá rodando, só os logs sumiram.
+
+**Como aplicar:** já corrigido em `alembic/env.py`:
+`fileConfig(config.config_file_name, disable_existing_loggers=False)`.
