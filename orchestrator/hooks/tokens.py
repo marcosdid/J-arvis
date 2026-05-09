@@ -25,3 +25,10 @@ class TokenRegistry:
 
     def revoke(self, token: str) -> None:
         self._map.pop(token, None)
+
+    def find_token_for(self, session_id: str) -> str | None:
+        """Reverse lookup. Used only by tests and the JARVIS_DEBUG endpoint."""
+        for token, sid in self._map.items():
+            if sid == session_id:
+                return token
+        return None

@@ -40,7 +40,8 @@ async def test_lifecycle_with_hooks(db: Database, tmp_path: Path) -> None:
         _, wt_id = await _create_project_and_worktree(client, repo)
         sess = (await client.post("/api/sessions", json={"worktree_id": wt_id})).json()
         sid = sess["id"]
-        token = next(t for t, s in registry._map.items() if s == sid)
+        token = registry.find_token_for(sid)
+        assert token is not None
 
         await client.post(f"/api/hooks/Notification/{token}", json={"message": "?"})
         await client.post(f"/api/hooks/Stop/{token}", json={"reason": "end"})

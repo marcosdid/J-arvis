@@ -60,12 +60,12 @@ def create_app(
 
         if os.environ.get("JARVIS_DEBUG") == "1":  # pragma: no cover
             @app.get("/api/_debug/token/{session_id}")
-            async def _debug_token(session_id: str, request: Request) -> dict:
+            async def _debug_token(session_id: str, request: Request) -> dict[str, str]:
                 registry = request.app.state.token_registry
-                for token, sid in registry._map.items():
-                    if sid == session_id:
-                        return {"token": token}
-                raise HTTPException(status_code=404)
+                token = registry.find_token_for(session_id)
+                if token is None:
+                    raise HTTPException(status_code=404)
+                return {"token": token}
 
     if ui_dist is not None and ui_dist.is_dir():
         app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")
