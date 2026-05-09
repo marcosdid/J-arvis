@@ -9,8 +9,11 @@ import {
 } from './lib/api';
 import { formatStatus } from './lib/format';
 import { queryKeys } from './lib/query-keys';
+import { useSessionEvents } from './hooks/useSessionEvents';
 
 export function App() {
+  const queryClient = useQueryClient();
+  useSessionEvents(queryClient);
   return (
     <main>
       <h1>J-arvis</h1>
