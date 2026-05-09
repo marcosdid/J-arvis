@@ -10,6 +10,7 @@ from orchestrator.core.projects import (
     DuplicateProjectError,
     NotAGitRepoError,
     PathDoesNotExistError,
+    ProjectHasTasksError,
     ProjectNotFoundError,
     create_project,
     delete_project,
@@ -65,3 +66,5 @@ async def delete_project_route(
         await delete_project(session, project_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProjectHasTasksError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

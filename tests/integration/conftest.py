@@ -1,8 +1,11 @@
+import os
+import subprocess
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from httpx import AsyncClient
 
 from orchestrator.sandbox.runtime import JailHandle
 from orchestrator.store.database import Database
@@ -49,3 +52,36 @@ class FakeSessionRuntime:
 @pytest.fixture
 def runtime() -> FakeSessionRuntime:
     return FakeSessionRuntime()
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        check=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@example.com",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.com",
+        },
+    )
+
+
+def _make_repo(parent: Path, name: str = "repo") -> Path:
+    repo = parent / name
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    (repo / "f").write_text("x", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "commit.gpgsign=false", "commit", "-m", "init")
+    return repo
+
+
+async def _create_project_and_worktree(
+    client: AsyncClient, repo: Path, name: str = "p"
+) -> tuple[str, str]:
+    project = (await client.post("/api/projects", json={"name": name, "path": str(repo)})).json()
+    worktrees = (await client.get(f"/api/projects/{project['id']}/worktrees")).json()
+    return project["id"], worktrees[0]["id"]

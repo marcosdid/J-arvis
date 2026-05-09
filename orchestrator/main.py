@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from orchestrator.api.projects import router as projects_router
 from orchestrator.api.sessions import router as sessions_router
+from orchestrator.api.tasks import router as tasks_router
 from orchestrator.api.worktrees import router as worktrees_router
 from orchestrator.api.ws import router as ws_router
 from orchestrator.config import RuntimeMode, Settings
@@ -53,6 +54,7 @@ def create_app(
     if database is not None:
         app.include_router(projects_router, prefix="/api")
         app.include_router(worktrees_router, prefix="/api")
+        app.include_router(tasks_router, prefix="/api")
         if runtime is not None:
             app.include_router(sessions_router, prefix="/api")
         app.include_router(hooks_router, prefix="/api")
