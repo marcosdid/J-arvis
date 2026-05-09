@@ -11,7 +11,7 @@ from orchestrator.core.sessions import (
     update_status,
 )
 from orchestrator.store.database import Database
-from orchestrator.store.models import ClaudeSession, Project, Worktree
+from orchestrator.store.models import ClaudeSession, Project, Task, Worktree
 
 
 @pytest.fixture
@@ -34,8 +34,13 @@ async def _seed_session(database: Database, status: SessionStatus) -> str:
         s.add(wt)
         await s.commit()
         await s.refresh(wt)
+        task = Task(project_id=proj.id, title="seed", description="", state="in_progress")
+        s.add(task)
+        await s.commit()
+        await s.refresh(task)
         row = ClaudeSession(
             worktree_id=wt.id,
+            task_id=task.id,
             status=status,
             pid=1,
             jail_id="j-1",

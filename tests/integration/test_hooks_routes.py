@@ -9,7 +9,7 @@ from orchestrator.hooks.tokens import TokenRegistry, generate_token
 from orchestrator.main import create_app
 from orchestrator.notifications.notify_send import NoopNotifier
 from orchestrator.store.database import Database
-from orchestrator.store.models import ClaudeSession, Project, Worktree
+from orchestrator.store.models import ClaudeSession, Project, Task, Worktree
 from tests.integration.conftest import FakeSessionRuntime
 
 
@@ -24,8 +24,13 @@ async def _seed(db: Database, status: str = "executing") -> tuple[str, str]:
         s.add(wt)
         await s.commit()
         await s.refresh(wt)
+        task = Task(project_id=proj.id, title="seed", description="", state="in_progress")
+        s.add(task)
+        await s.commit()
+        await s.refresh(task)
         sess = ClaudeSession(
             worktree_id=wt.id,
+            task_id=task.id,
             status=status,
             pid=1,
             jail_id="j",

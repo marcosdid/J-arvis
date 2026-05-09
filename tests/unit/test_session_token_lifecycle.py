@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.core.sessions import start_session, stop_session
+from orchestrator.core.tasks import create_task
 from orchestrator.hooks.tokens import TokenRegistry
 from orchestrator.store.database import Database
 from orchestrator.store.models import Project, Worktree
@@ -20,7 +21,7 @@ async def db(tmp_path: Path) -> AsyncIterator[Database]:
         await database.close()
 
 
-async def _seed_worktree(database: Database, worktree_path: str) -> str:
+async def _seed_worktree(database: Database, worktree_path: str) -> tuple[str, str]:
     async with database.session() as s:
         proj = Project(name="p", path=worktree_path + "-proj")
         s.add(proj)
@@ -30,21 +31,23 @@ async def _seed_worktree(database: Database, worktree_path: str) -> str:
         s.add(wt)
         await s.commit()
         await s.refresh(wt)
-        return wt.id
+        return wt.id, proj.id
 
 
 @pytest.mark.asyncio
 async def test_start_session_registers_token_when_registry_provided(db: Database) -> None:
     worktree_path = "/tmp/test-wt-start"
-    worktree_id = await _seed_worktree(db, worktree_path)
+    worktree_id, project_id = await _seed_worktree(db, worktree_path)
     runtime = FakeSessionRuntime()
     registry = TokenRegistry()
 
     async with db.session() as s:
+        t = await create_task(s, project_id=project_id, title="seed")
         row = await start_session(
             s,
             runtime,
-            worktree_id,
+            task_id=t.id,
+            worktree_id=worktree_id,
             token_registry=registry,
             base_url="http://localhost:8000",
         )
@@ -56,15 +59,17 @@ async def test_start_session_registers_token_when_registry_provided(db: Database
 @pytest.mark.asyncio
 async def test_stop_session_revokes_token_when_registry_provided(db: Database) -> None:
     worktree_path = "/tmp/test-wt-stop"
-    worktree_id = await _seed_worktree(db, worktree_path)
+    worktree_id, project_id = await _seed_worktree(db, worktree_path)
     runtime = FakeSessionRuntime()
     registry = TokenRegistry()
 
     async with db.session() as s:
+        t = await create_task(s, project_id=project_id, title="seed")
         row = await start_session(
             s,
             runtime,
-            worktree_id,
+            task_id=t.id,
+            worktree_id=worktree_id,
             token_registry=registry,
             base_url="http://localhost:8000",
         )

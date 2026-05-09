@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from orchestrator.store.database import Database
-from orchestrator.store.models import ClaudeSession, Project, Worktree
+from orchestrator.store.models import ClaudeSession, Project, Task, Worktree
 
 
 @pytest.mark.integration
@@ -27,7 +27,21 @@ async def test_persist_and_query_project_worktree_session(tmp_path: Path) -> Non
             await s.commit()
             await s.refresh(worktree)
 
-            session_row = ClaudeSession(worktree_id=worktree.id, status="executing")
+            task = Task(
+                project_id=project.id,
+                title="seed",
+                description="",
+                state="in_progress",
+            )
+            s.add(task)
+            await s.commit()
+            await s.refresh(task)
+
+            session_row = ClaudeSession(
+                worktree_id=worktree.id,
+                task_id=task.id,
+                status="executing",
+            )
             s.add(session_row)
             await s.commit()
             await s.refresh(session_row)

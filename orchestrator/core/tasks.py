@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from orchestrator.store.models import Project, Task
+from orchestrator.store.models import Project, Task, Worktree
 
 _VALID_TRANSITIONS: frozenset[tuple[str, str]] = frozenset({
     ("idea", "ready"), ("idea", "discarded"),
@@ -115,3 +115,26 @@ async def update_task(
     await db.commit()
     await db.refresh(row)
     return row, previous_state
+
+
+async def ensure_task_for_quick_session(
+    db: AsyncSession,
+    *,
+    worktree_id: str,
+) -> Task:
+    """Create implicit task for a quick (worktree-driven) session."""
+    worktree = await db.get(Worktree, worktree_id)
+    if worktree is None:
+        raise ProjectNotFoundForTaskError(f"worktree not found: {worktree_id}")
+    branch = worktree.branch or "(detached)"
+    title = f"Quick session · {branch}"
+    row = Task(
+        project_id=worktree.project_id,
+        title=title,
+        description="",
+        state="in_progress",
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row

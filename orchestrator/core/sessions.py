@@ -3,9 +3,14 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orchestrator.core.tasks import (
+    TaskAlreadyHasActiveSessionError,
+    TaskInTerminalStateError,
+    get_task,
+)
 from orchestrator.hooks.tokens import TokenRegistry, generate_token
 from orchestrator.sandbox.runtime import JailHandle, SessionRuntime
 from orchestrator.store.models import ClaudeSession, Worktree
@@ -30,19 +35,42 @@ class SessionNotFoundError(Exception):
 async def start_session(
     session: AsyncSession,
     runtime: SessionRuntime,
-    worktree_id: str,
     *,
+    task_id: str,
+    worktree_id: str,
     token_registry: TokenRegistry | None = None,
     base_url: str | None = None,
 ) -> ClaudeSession:
+    task = await get_task(session, task_id)
+    await session.refresh(task)
+
+    if task.state in ("done", "discarded"):
+        raise TaskInTerminalStateError(
+            f"cannot start session: task is in terminal state '{task.state}'"
+        )
+
+    active_count = (await session.execute(
+        select(func.count()).select_from(ClaudeSession).where(
+            ClaudeSession.task_id == task_id,
+            ClaudeSession.status.notin_([SessionStatus.DONE, SessionStatus.ERROR]),
+        )
+    )).scalar_one()
+    if active_count > 0:
+        raise TaskAlreadyHasActiveSessionError("task already has active session")
+
     worktree = await session.get(Worktree, worktree_id)
     if worktree is None:
         raise WorktreeNotFoundError(f"worktree not found: {worktree_id}")
+
+    if task.state in ("idea", "ready", "review"):
+        task.state = "in_progress"
+        task.updated_at = datetime.now(UTC)
 
     token = generate_token() if token_registry is not None else None
     handle = await runtime.spawn(Path(worktree.path), token=token, base_url=base_url)
     row = ClaudeSession(
         worktree_id=worktree_id,
+        task_id=task_id,
         status=SessionStatus.EXECUTING,
         pid=handle.pid,
         jail_id=handle.id,
