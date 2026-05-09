@@ -55,3 +55,5 @@ class ClaudeSession(Base):
     transcript_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     started_at: Mapped[datetime] = mapped_column(default=_now)
     ended_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    hook_token: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
+    last_hook_at: Mapped[datetime | None] = mapped_column(nullable=True)

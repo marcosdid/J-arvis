@@ -81,3 +81,43 @@ def _rehydrate_handle(row: ClaudeSession) -> JailHandle:
             f"session {row.id} has no runtime handle (status={row.status})"
         )
     return JailHandle(id=row.jail_id, pid=row.pid, started_at=row.started_at)
+
+
+async def update_status(
+    session: AsyncSession,
+    session_id: str,
+    new_status: SessionStatus,
+) -> tuple[SessionStatus, SessionStatus]:
+    """Idempotent status mutation. Returns (previous, new).
+
+    `session.refresh(row)` is intentional (per spec §7): when multiple hook
+    handlers share the same `AsyncSession`, the in-identity-map row may be
+    stale from a sibling write. SQLite serialises writes; refresh bridges
+    reads cleanly. Postgres migration will revisit.
+    """
+    row = await session.get(ClaudeSession, session_id)
+    if row is None:
+        raise SessionNotFoundError(f"session not found: {session_id}")
+    await session.refresh(row)
+    previous = SessionStatus(row.status)
+    row.last_hook_at = datetime.now(UTC)
+    if previous in _TERMINAL_STATUSES or previous == new_status:
+        await session.commit()
+        return previous, previous
+    row.status = new_status
+    await session.commit()
+    return previous, new_status
+
+
+async def bump_last_hook_at(session: AsyncSession, session_id: str) -> None:
+    """Update only ``last_hook_at`` without touching status.
+
+    Used by audit-only hooks (``PreToolUse``) where we don't want a status
+    transition but still want to record that the session is alive.
+    """
+    row = await session.get(ClaudeSession, session_id)
+    if row is None:
+        raise SessionNotFoundError(f"session not found: {session_id}")
+    await session.refresh(row)
+    row.last_hook_at = datetime.now(UTC)
+    await session.commit()
