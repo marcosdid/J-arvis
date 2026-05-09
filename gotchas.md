@@ -81,3 +81,50 @@ ou conflitos de tipo entre `Plugin<any>` de versões diferentes.
 **Como aplicar:** ao montar UI nova com Vite ≥6, fixar
 `@vitest/coverage-v8` e `vitest` em `^3` no `package.json`. Importar
 `defineConfig` de `'vitest/config'`, não de `'vite'`.
+
+## 6. UID host vs container quebra bind-mounts em E2E
+
+**Regra:** ao precisar de um repo git acessível pelo daemon dentro do
+container, **crie via `container.exec()` em vez de bind-mount do
+`tmp_path`**. O usuário do host (`marcoslima` uid=1001) não bate com o
+`jarvis` do container (uid=1000), e o `tmp_path` do pytest é
+`drwx------`, então o daemon não consegue ler nada via volume.
+
+**Como detectar:** API responde 422 "not a git repository" mesmo com
+`.git` existindo no caminho mountado, OU `git worktree list` falha por
+permissão.
+
+**Como aplicar:** o E2E flow test em `tests/e2e/conftest.py` usa
+`container.exec(["sh", "-c", _INIT_REPO_SCRIPT])` para criar o repo
+dentro do container já como o user `jarvis`. O Dockerfile precisa
+ter `git` instalado (faz parte do daemon também — `git worktree list`).
+
+## 7. `.dockerignore` evita corrupção de tar com node_modules locais
+
+**Regra:** `ui/node_modules/` (e qualquer cache pesado) precisa estar
+no `.dockerignore`. pnpm cria muitos symlinks em `node_modules/.pnpm/`
+e o buildkit às vezes vê o arquivo ser movido durante o tar streaming
+→ erro `failed to create diff tar stream: lstat ...: no such file or
+directory`.
+
+**Como detectar:** `docker build` falha aleatoriamente em `lstat` em
+arquivos dentro de `ui/node_modules/.pnpm/...` durante COPY ou tar do
+contexto.
+
+**Como aplicar:** o Dockerfile já roda `pnpm install --frozen-lockfile`
+dentro do container, então `ui/node_modules` local nunca precisa ser
+copiado. `.dockerignore` reforça isso e acelera o build.
+
+## 8. Use `HealthcheckWaitStrategy` em vez de `LogMessageWaitStrategy` quando há `HEALTHCHECK` no Dockerfile
+
+**Regra:** com `HEALTHCHECK` declarado no Dockerfile, prefira
+`testcontainers.core.wait_strategies.HealthcheckWaitStrategy()`. É mais
+robusto que esperar uma string específica nos logs (uvicorn 0.46
+buffera ou redireciona "Application startup complete" de forma que
+o stderr capturado pelo testcontainers às vezes não inclui).
+
+**Como detectar:** `LogMessageWaitStrategy` dá `TimeoutError` mesmo com
+`Container status: running, health: healthy` no relatório.
+
+**Como aplicar:** `HealthcheckWaitStrategy().with_startup_timeout(120)`
+em vez do log strategy.
