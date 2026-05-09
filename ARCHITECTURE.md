@@ -24,7 +24,7 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
 ├─────────────────────────────────────────────────────────────┤
 │  Orchestrator daemon (Python + FastAPI) — fora da jaula     │
 │  ├── api/        REST + WS                                  │
-│  ├── core/       domínio: tasks, sessions, approvals        │
+│  ├── core/       domínio: tasks, sessions                   │
 │  ├── runtime/    Run from Panel (manifesto + Docker)        │
 │  ├── sandbox/    SessionRuntime (backend ai-jail)           │
 │  ├── hooks/      endpoints + parser de eventos              │
@@ -44,9 +44,7 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
   - `state ∈ {idea, ready, in_progress, review, done, discarded}`
 - `ClaudeSession(id, task_id, worktree_id, jail_id, status, pid, started_at, ended_at?, transcript_path)`
   - Classe nomeada `ClaudeSession` para não colidir com `sqlalchemy.orm.Session`/`AsyncSession`. Tabela `sessions`.
-  - `status ∈ {executing, awaiting_approval, awaiting_response, idle, error, done}`
-- `ApprovalRequest(id, session_id, tool, args_json, state, created_at, decided_at?)`
-  - `state ∈ {pending, approved, denied, expired}`
+  - `status ∈ {executing, awaiting_response, idle, error, done}`
 - `RunInstance(id, worktree_id, manifest_path, status, ports_json, started_at)`
   - `status ∈ {building, seeding, ready, failed, stopped}`
 
@@ -58,11 +56,13 @@ Hooks do Claude Code apontam para `http://localhost:<port>/api/hooks/<event>/<to
 (token UUID por sessão, gerado em `start_session`, registrado em memória
 e revogado em `stop_session`):
 
-- `Notification` em F2 sempre vira `awaiting_response` (refinado em F3
-  quando a fila de aprovações distinguir tipos).
-- `PreToolUse` em F2 é **audit-only**: registra evento, mantém status,
-  retorna `{"continue": true}` (nunca bloqueia). F3 introduz
-  `ApprovalRequest` e bloqueio real.
+- `Notification` vira `awaiting_response` (final; ADR-0011 cancelou o
+  refinamento via F3).
+- `PreToolUse` é audit-only **definitivamente**: registra evento,
+  broadcasta `session.tool_use`, retorna `{"continue": true}`. Decisão
+  de permissão fica no terminal nativo do Claude (prompt `[y/n/always]`)
+  + `permissions.allow`/`deny` no `settings.json` por projeto. Ver
+  ADR-0011.
 - `Stop` → marca `idle`.
 - Leitura periódica do transcript para auto-resumo de 1 linha (v1.5).
 
@@ -191,8 +191,8 @@ Cada fase termina demonstrável + verde nas três camadas.
 |---|---|---|
 | **F0 — Esqueleto + harness** | `make up` sobe daemon + UI vazia; `make test-all` verde com sentinelas em unit/int/e2e | pyproject, FastAPI scaffold, Vite + Vitest + Playwright, Dockerfile.orchestrator, testcontainers, gates de cobertura |
 | **F1 — Spawn isolado** | UI lista projetos/worktrees, botão "Nova sessão" abre Claude Code dentro de ai-jail | `Project`, `Worktree`, `Session`, `SessionRuntime` real, status básico |
-| **F2 — Status semântico via hooks** | Cards mostram `awaiting_approval` / `awaiting_response` / `idle` em tempo real | `/hooks/*`, parser de eventos, broadcast WS, `notify-send` |
-| **F3 — Fila central de aprovações** | Painel único agrega todos os `PreToolUse`; aprovar/negar resolve sync | `ApprovalRequest`, UI da fila, blocklist, perfis |
+| **F2 — Status semântico via hooks** | Cards mostram `awaiting_response` / `idle` em tempo real | `/hooks/*`, parser de eventos, broadcast WS, `notify-send` |
+| ~~F3~~ | **Cancelada** — fundida em F2; ver [ADR-0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | — |
 | **F4 — Backlog kanban** | Drag-and-drop entre estados; iniciar sessão a partir de uma task | `Task`, kanban UI, vínculo Task↔Session, templates iniciais |
 | **F5 — Mapa de worktrees** | Árvore visual por projeto; criar/destruir worktree pela UI | git ops, vinculação a tasks |
 | **F6 — Run from Panel** | Botão ▶ Run sobe DB+back+front e abre URL | manifesto, bootstrap por Claude, alocação de portas, Docker descartável, lifecycle |
@@ -229,4 +229,5 @@ criar novo ADR e atualizar `docs/adr/README.md`.**
 | Modelo de domínio | [0007](docs/adr/0007-task-first-em-vez-de-session-first.md) | Task-first, sessão é detalhe | Resolve a dor real de contexto perdido |
 | Sessão em terminal nativo | [0008](docs/adr/0008-sessao-em-terminal-nativo-do-desktop.md) | Daemon spawna terminal do desktop com `ai-jail run -- claude` | UX "mágica no clique" sem PTY-em-browser |
 | Hooks via settings.json no jail | [0009](docs/adr/0009-hooks-via-settings-no-jail.md) | Daemon escreve `<worktree>/.claude/settings.json` antes de `ai-jail run` | Sandbox-clean, zero pegada em `~/.claude` |
-| WebSocket canal único | [0010](docs/adr/0010-websocket-canal-unico-envelope-tipado.md) | `/ws` + envelope tipado | Escala pra F3/F4/F6 sem multiplicar canais |
+| WebSocket canal único | [0010](docs/adr/0010-websocket-canal-unico-envelope-tipado.md) | `/ws` + envelope tipado | Escala pra F4/F6 sem multiplicar canais |
+| F3 cancelada / fundida em F2 | [0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | Sem fila ativa, sem `ApprovalRequest`; `AWAITING_APPROVAL` removido do enum | Decisão de permissão fica no Claude Code (terminal nativo + `settings.json`); evita caminho paralelo |

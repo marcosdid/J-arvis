@@ -7,10 +7,6 @@ describe('formatStatus', () => {
     expect(formatStatus('executing')).toBe('Em execução');
   });
 
-  it('translates awaiting_approval', () => {
-    expect(formatStatus('awaiting_approval')).toBe('Aguardando aprovação');
-  });
-
   it('translates awaiting_response', () => {
     expect(formatStatus('awaiting_response')).toBe('Aguardando resposta');
   });

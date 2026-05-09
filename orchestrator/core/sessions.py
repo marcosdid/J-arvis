@@ -13,7 +13,6 @@ from orchestrator.store.models import ClaudeSession, Worktree
 
 class SessionStatus(StrEnum):
     EXECUTING = "executing"
-    AWAITING_APPROVAL = "awaiting_approval"
     AWAITING_RESPONSE = "awaiting_response"
     IDLE = "idle"
     ERROR = "error"
