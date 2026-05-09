@@ -83,7 +83,7 @@ def _build_production_app() -> FastAPI:  # pragma: no cover
     settings = Settings()
     database = Database(settings.database_url)
     runtime = build_runtime(settings.runtime)
-    ui_dist = settings.ui_dist if settings.ui_dist.is_dir() else None
+    ui_dist = settings.effective_ui_dist
 
     broadcaster = InMemoryWsBroadcaster()
     registry = TokenRegistry()
