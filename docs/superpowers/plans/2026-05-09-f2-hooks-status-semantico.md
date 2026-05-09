@@ -174,7 +174,7 @@ Expected: 5 passed.
 
 - [ ] **Step 5: Coverage check**
 
-Run: `uv run pytest tests/unit/test_hooks_parser.py --cov=orchestrator/hooks/parser --cov-report=term-missing`
+Run: `uv run pytest tests/unit/test_hooks_parser.py --cov=orchestrator.hooks.parser --cov-report=term-missing`
 Expected: 100%.
 
 - [ ] **Step 6: Code review subagent**
@@ -288,7 +288,7 @@ Expected: 5 passed.
 
 - [ ] **Step 5: Coverage**
 
-Run: `uv run pytest tests/unit/test_token_registry.py --cov=orchestrator/hooks/tokens --cov-report=term-missing`
+Run: `uv run pytest tests/unit/test_token_registry.py --cov=orchestrator.hooks.tokens --cov-report=term-missing`
 Expected: 100%.
 
 - [ ] **Step 6: Code review subagent** (mesmo padrão do Task 1).
@@ -484,7 +484,7 @@ Run: `uv run pytest tests/unit/test_notifier_sink.py -v`
 
 - [ ] **Step 9: Coverage**
 
-Run: `uv run pytest tests/unit/test_ws_envelope.py tests/unit/test_notifier_sink.py --cov=orchestrator/events --cov=orchestrator/notifications --cov-report=term-missing`
+Run: `uv run pytest tests/unit/test_ws_envelope.py tests/unit/test_notifier_sink.py --cov=orchestrator.events --cov=orchestrator.notifications --cov-report=term-missing`
 Expected: 100%.
 
 - [ ] **Step 10: Code review** subagent.
@@ -745,7 +745,7 @@ Expected: 9 colunas após upgrade (incluindo `hook_token`, `last_hook_at`); 7 co
 
 - [ ] **Step 8: Coverage delta**
 
-Run: `uv run pytest tests/unit/test_session_update_status.py --cov=orchestrator/core/sessions --cov-report=term-missing`
+Run: `uv run pytest tests/unit/test_session_update_status.py --cov=orchestrator.core.sessions --cov-report=term-missing`
 Expected: 100% sobre `update_status`.
 
 - [ ] **Step 9: Suite completa pra confirmar não regrediu**
@@ -1110,7 +1110,7 @@ Expected: tudo verde.
 
 - [ ] **Step 11: Coverage**
 
-Run: `uv run pytest tests/unit/test_aijail_settings_writer.py --cov=orchestrator/sandbox/settings_writer --cov-report=term-missing`
+Run: `uv run pytest tests/unit/test_aijail_settings_writer.py --cov=orchestrator.sandbox.settings_writer --cov-report=term-missing`
 Expected: 100%.
 
 Run: `uv run pytest tests/unit tests/integration -m 'not e2e' --cov=orchestrator --cov-report=term-missing`
@@ -1357,7 +1357,7 @@ Run: `uv run pytest tests/unit/test_notify_send_notifier.py -v`
 
 - [ ] **Step 9: Coverage**
 
-Run: `uv run pytest tests/unit/test_in_memory_broadcaster.py tests/unit/test_notify_send_notifier.py --cov=orchestrator/events/broadcaster --cov=orchestrator/notifications/notify_send --cov-report=term-missing`
+Run: `uv run pytest tests/unit/test_in_memory_broadcaster.py tests/unit/test_notify_send_notifier.py --cov=orchestrator.events/broadcaster --cov=orchestrator.notifications/notify_send --cov-report=term-missing`
 Expected: 100% (com `SubprocessRunner` em pragma: no cover, justificado).
 
 - [ ] **Step 10: Code review** subagent.
@@ -1887,7 +1887,7 @@ Run: `uv run pytest tests/integration/test_ws_endpoint.py -v`
 
 - [ ] **Step 6: Coverage**
 
-Run: `uv run pytest tests/integration/test_ws_endpoint.py --cov=orchestrator/api/ws --cov-report=term-missing`
+Run: `uv run pytest tests/integration/test_ws_endpoint.py --cov=orchestrator.api.ws --cov-report=term-missing`
 Expected: 100% (com pragma se inalcançável).
 
 - [ ] **Step 7: Code review** subagent.
