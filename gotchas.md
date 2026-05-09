@@ -46,7 +46,29 @@ underscore.
 implementação, escreva o teste para o NOVO input e confirme RED. Só
 depois adicione a ramificação.
 
-## 4. Vitest 2 e Vite 6 têm conflito de tipos
+## 4. coverage.py precisa de `concurrency=["thread", "greenlet"]` com SQLAlchemy async
+
+**Regra:** quando o código testado usa SQLAlchemy 2 async (que roda
+I/O dentro de greenlets), o `pyproject.toml` precisa de:
+
+```toml
+[tool.coverage.run]
+concurrency = ["thread", "greenlet"]
+```
+
+Sem isso, qualquer linha async que toque o DB fica reportada como
+**não coberta** mesmo quando o teste passa — a cobertura cai e o gate
+de 100% reprova falsamente.
+
+**Como detectar:** integration test passa, mas linhas claramente
+exercitadas (returns, assignments) aparecem na lista "Missing" do
+coverage report. Especialmente comum em `await session.commit()` /
+`await session.refresh()` / `await session.execute()`.
+
+**Como aplicar:** já está configurado. Se aparecer regressão,
+checar este parâmetro antes de caçar bugs no código.
+
+## 5. Vitest 2 e Vite 6 têm conflito de tipos
 
 **Regra:** se o `vite.config.ts` exporta config com chave `test:`, use
 Vitest 3 com Vite 6. Vitest 2 traz tipos de Vite 5 e quebra em

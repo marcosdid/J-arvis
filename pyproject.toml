@@ -59,6 +59,7 @@ testpaths = ["tests"]
 [tool.coverage.run]
 source = ["orchestrator"]
 branch = true
+concurrency = ["thread", "greenlet"]
 
 [tool.coverage.report]
 show_missing = true
