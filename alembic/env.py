@@ -8,7 +8,11 @@ from orchestrator.store.models import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: alembic.ini é carregado em runtime via
+    # Database.bootstrap() pra rodar migrations no startup do uvicorn.
+    # Default True desliga o logger do uvicorn ("Application startup complete"
+    # some), confundindo o usuário que pensa que o daemon não subiu.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
