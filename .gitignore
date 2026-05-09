@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.venv/
+.python-version
+
+# uv
+uv.lock.diff
+
+# Node / UI
+node_modules/
+.pnpm-store/
+ui/dist/
+ui/.vite/
+ui/coverage/
+ui/src/**/*.js
+ui/vite.config.js
+ui/vitest.setup.js
+*.tsbuildinfo
+
+# Playwright
+playwright-report/
+test-results/
+.playwright/
+
+# Editors / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Local data
+*.db
+*.sqlite*
+.orchestrator/data/
+
+# Build / cache
+dist/
+build/
+*.log
