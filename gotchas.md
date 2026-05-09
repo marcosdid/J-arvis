@@ -128,3 +128,20 @@ o stderr capturado pelo testcontainers às vezes não inclui).
 
 **Como aplicar:** `HealthcheckWaitStrategy().with_startup_timeout(120)`
 em vez do log strategy.
+
+## 9. E2E não roda de dentro de uma sessão Claude já em ai-jail
+
+**Regra:** se a sessão Claude está rodando dentro de uma jaula `ai-jail`
+(network namespace isolado), os testes E2E **não conseguem alcançar o
+docker daemon do host** mesmo que ele esteja no ar. O `/var/run/docker.sock`
+aparece dentro da jaula como tmpfs vazio (sem daemon escutando).
+
+**Como detectar:** `docker info` retorna `Cannot connect to /var/run/docker.sock`
+mesmo quando o host tem Docker rodando. Sintomas: `CapBnd: 0000000000000000`
+em `/proc/self/status`, namespaces `net/pid/mnt/ipc/cgroup` listados em
+`/proc/self/ns/`, socket file presente mas em tmpfs.
+
+**Como aplicar:** rodar `uv run pytest tests/e2e/...` **fora** da jaula
+(no terminal nativo do host, não dentro de uma sessão Claude já jailed).
+Equivalente ao item "Demo B" da DoD da F2 — validação manual a partir
+do host. F0/F1 do roadmap são todos não-E2E e cabem dentro da jaula.
