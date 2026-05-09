@@ -11,7 +11,11 @@ from orchestrator.api.worktrees import router as worktrees_router
 from orchestrator.api.ws import router as ws_router
 from orchestrator.config import RuntimeMode, Settings
 from orchestrator.core.health import health_status
+from orchestrator.events.broadcaster import InMemoryWsBroadcaster
 from orchestrator.hooks.router import router as hooks_router
+from orchestrator.hooks.tokens import TokenRegistry
+from orchestrator.notifications.notify_send import NoopNotifier, NotifySendNotifier
+from orchestrator.notifications.sink import NotifierSink
 from orchestrator.sandbox.aijail import (
     AiJailRuntime,
     SubprocessProcessOps,
@@ -65,12 +69,24 @@ def build_runtime(mode: RuntimeMode) -> SessionRuntime:
     return NullSessionRuntime()
 
 
-def _build_production_app() -> FastAPI:
+def _build_production_app() -> FastAPI:  # pragma: no cover
     settings = Settings()
     database = Database(settings.database_url)
     runtime = build_runtime(settings.runtime)
     ui_dist = settings.ui_dist if settings.ui_dist.is_dir() else None
-    return create_app(database=database, runtime=runtime, ui_dist=ui_dist)
+
+    broadcaster = InMemoryWsBroadcaster()
+    registry = TokenRegistry()
+    notifier: NotifierSink = (
+        NotifySendNotifier() if settings.notify == "on" else NoopNotifier()
+    )
+
+    app = create_app(database=database, runtime=runtime, ui_dist=ui_dist)
+    app.state.token_registry = registry
+    app.state.ws_broadcaster = broadcaster
+    app.state.notifier = notifier
+    app.state.hook_base_url = settings.effective_hook_base_url
+    return app
 
 
 app = _build_production_app()
