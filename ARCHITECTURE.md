@@ -54,15 +54,22 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
 
 ## 4. Comunicação Claude Code ↔ daemon
 
-Hooks do Claude Code apontam para `http://localhost:<port>/hooks/<event>`:
+Hooks do Claude Code apontam para `http://localhost:<port>/api/hooks/<event>/<token>`
+(token UUID por sessão, gerado em `start_session`, registrado em memória
+e revogado em `stop_session`):
 
-- `Notification` → muda `Session.status` para `awaiting_approval` ou
-  `awaiting_response` conforme parser do payload.
-- `PreToolUse` → cria `ApprovalRequest`, devolve decisão sync ao Claude Code.
-- `Stop` → marca `idle` ou `done` conforme contexto.
+- `Notification` em F2 sempre vira `awaiting_response` (refinado em F3
+  quando a fila de aprovações distinguir tipos).
+- `PreToolUse` em F2 é **audit-only**: registra evento, mantém status,
+  retorna `{"continue": true}` (nunca bloqueia). F3 introduz
+  `ApprovalRequest` e bloqueio real.
+- `Stop` → marca `idle`.
 - Leitura periódica do transcript para auto-resumo de 1 linha (v1.5).
 
-Daemon → UI: WebSocket único, broadcast de eventos.
+Daemon → UI: WebSocket único em `/ws`, broadcast com envelope tipado
+`{type, session_id, payload, at}`. Tipos atuais: `session.status`,
+`session.tool_use`, `session.stopped`. Ver ADR-0009 (registro via
+settings.json no jail) e ADR-0010 (envelope WS).
 
 ## 5. Sandbox
 
@@ -220,3 +227,6 @@ criar novo ADR e atualizar `docs/adr/README.md`.**
 | Run from Panel manifesto | [0005](docs/adr/0005-run-from-panel-manifesto-explicito.md) | `.orchestrator/run.yml` + bootstrap por Claude | Explícito > heurística frágil |
 | DB do Run from Panel | [0006](docs/adr/0006-db-descartavel-por-execucao.md) | `docker run --rm` por execução | Estado limpo, cache amortiza custo |
 | Modelo de domínio | [0007](docs/adr/0007-task-first-em-vez-de-session-first.md) | Task-first, sessão é detalhe | Resolve a dor real de contexto perdido |
+| Sessão em terminal nativo | [0008](docs/adr/0008-sessao-em-terminal-nativo-do-desktop.md) | Daemon spawna terminal do desktop com `ai-jail run -- claude` | UX "mágica no clique" sem PTY-em-browser |
+| Hooks via settings.json no jail | [0009](docs/adr/0009-hooks-via-settings-no-jail.md) | Daemon escreve `<worktree>/.claude/settings.json` antes de `ai-jail run` | Sandbox-clean, zero pegada em `~/.claude` |
+| WebSocket canal único | [0010](docs/adr/0010-websocket-canal-unico-envelope-tipado.md) | `/ws` + envelope tipado | Escala pra F3/F4/F6 sem multiplicar canais |
