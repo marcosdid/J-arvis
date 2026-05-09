@@ -123,6 +123,7 @@ async def test_stop_session_marks_done_and_kills_runtime(
     assert sessions[0]["status"] == "done"
     assert sessions[0]["ended_at"] is not None
     assert len(runtime.killed) == 1
+    assert isinstance(runtime.killed[0][1], Path)
 
 
 @pytest.mark.integration

@@ -28,6 +28,12 @@ class SessionRuntime(Protocol):
     tracks state in memory.
     """
 
-    async def spawn(self, worktree: Path) -> JailHandle: ...
+    async def spawn(
+        self,
+        worktree: Path,
+        *,
+        token: str | None = None,
+        base_url: str | None = None,
+    ) -> JailHandle: ...
 
-    async def kill(self, handle: JailHandle) -> None: ...
+    async def kill(self, handle: JailHandle, *, worktree: Path | None = None) -> None: ...

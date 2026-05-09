@@ -17,6 +17,11 @@ from typing import Protocol
 from uuid import uuid4
 
 from orchestrator.sandbox.runtime import JailHandle
+from orchestrator.sandbox.settings_writer import (
+    ensure_gitignore_entry,
+    remove_settings_from_jail,
+    write_settings_into_jail,
+)
 
 # Order matters: first found in PATH wins when JARVIS_TERMINAL is unset.
 _TERMINAL_PRIORITY: tuple[str, ...] = (
@@ -94,7 +99,16 @@ class AiJailRuntime:
         self._terminal_resolver = terminal_resolver
         self._process_ops = process_ops
 
-    async def spawn(self, worktree: Path) -> JailHandle:
+    async def spawn(
+        self,
+        worktree: Path,
+        *,
+        token: str | None = None,
+        base_url: str | None = None,
+    ) -> JailHandle:
+        if token is not None and base_url is not None:
+            write_settings_into_jail(worktree, token=token, base_url=base_url)
+            ensure_gitignore_entry(worktree)
         terminal = self._terminal_resolver()
         inner = ["ai-jail", "run", "--", "claude"]
         cmd = build_terminal_command(terminal, inner)
@@ -102,12 +116,14 @@ class AiJailRuntime:
         pid = self._process_ops.spawn(cmd, str(worktree))
         return JailHandle(id=uuid4().hex, pid=pid, started_at=datetime.now(UTC))
 
-    async def kill(self, handle: JailHandle) -> None:
+    async def kill(self, handle: JailHandle, *, worktree: Path | None = None) -> None:
         # os.kill is a non-blocking syscall; no need to offload to a thread.
-        try:
+        try:  # noqa: SIM105 — explicit branch keeps process-already-gone path obvious
             self._process_ops.kill(handle.pid)
         except ProcessLookupError:
-            return  # process already gone — idempotent
+            pass  # process already gone — idempotent
+        if worktree is not None:
+            remove_settings_from_jail(worktree)
 
 
 class SubprocessProcessOps:  # pragma: no cover

@@ -18,12 +18,18 @@ class NullSessionRuntime:
     def __init__(self) -> None:
         self._pid_counter = count(start=30001)
 
-    async def spawn(self, _worktree: Path) -> JailHandle:
+    async def spawn(
+        self,
+        _worktree: Path,
+        *,
+        token: str | None = None,
+        base_url: str | None = None,
+    ) -> JailHandle:
         return JailHandle(
             id=uuid4().hex,
             pid=next(self._pid_counter),
             started_at=datetime.now(UTC),
         )
 
-    async def kill(self, handle: JailHandle) -> None:
+    async def kill(self, handle: JailHandle, *, worktree: Path | None = None) -> None:
         return None

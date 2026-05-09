@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orchestrator.hooks.tokens import TokenRegistry, generate_token
 from orchestrator.sandbox.runtime import JailHandle, SessionRuntime
 from orchestrator.store.models import ClaudeSession, Worktree
 
@@ -28,23 +29,32 @@ class SessionNotFoundError(Exception):
 
 
 async def start_session(
-    session: AsyncSession, runtime: SessionRuntime, worktree_id: str
+    session: AsyncSession,
+    runtime: SessionRuntime,
+    worktree_id: str,
+    *,
+    token_registry: TokenRegistry | None = None,
+    base_url: str | None = None,
 ) -> ClaudeSession:
     worktree = await session.get(Worktree, worktree_id)
     if worktree is None:
         raise WorktreeNotFoundError(f"worktree not found: {worktree_id}")
 
-    handle = await runtime.spawn(Path(worktree.path))
+    token = generate_token() if token_registry is not None else None
+    handle = await runtime.spawn(Path(worktree.path), token=token, base_url=base_url)
     row = ClaudeSession(
         worktree_id=worktree_id,
         status=SessionStatus.EXECUTING,
         pid=handle.pid,
         jail_id=handle.id,
         started_at=handle.started_at,
+        hook_token=token,
     )
     session.add(row)
     await session.commit()
     await session.refresh(row)
+    if token_registry is not None and token is not None:
+        token_registry.register(token, row.id)
     return row
 
 
@@ -57,7 +67,11 @@ _TERMINAL_STATUSES = frozenset({SessionStatus.DONE, SessionStatus.ERROR})
 
 
 async def stop_session(
-    session: AsyncSession, runtime: SessionRuntime, session_id: str
+    session: AsyncSession,
+    runtime: SessionRuntime,
+    session_id: str,
+    *,
+    token_registry: TokenRegistry | None = None,
 ) -> None:
     row = await session.get(ClaudeSession, session_id)
     if row is None:
@@ -67,10 +81,14 @@ async def stop_session(
         return  # idempotent: already terminal
 
     handle = _rehydrate_handle(row)
-    await runtime.kill(handle)
+    worktree_row = await session.get(Worktree, row.worktree_id)
+    worktree_path = Path(worktree_row.path) if worktree_row else None
+    await runtime.kill(handle, worktree=worktree_path)
     row.status = SessionStatus.DONE
     row.ended_at = datetime.now(UTC)
     await session.commit()
+    if token_registry is not None and row.hook_token is not None:
+        token_registry.revoke(row.hook_token)
 
 
 def _rehydrate_handle(row: ClaudeSession) -> JailHandle:

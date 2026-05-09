@@ -16,7 +16,12 @@ def test_should_notify_when_transitioning_to_idle(prev: SessionStatus) -> None:
 
 @pytest.mark.parametrize(
     "new",
-    [SessionStatus.EXECUTING, SessionStatus.DONE, SessionStatus.ERROR, SessionStatus.AWAITING_APPROVAL],
+    [
+        SessionStatus.EXECUTING,
+        SessionStatus.DONE,
+        SessionStatus.ERROR,
+        SessionStatus.AWAITING_APPROVAL,
+    ],
 )
 def test_should_not_notify_for_other_targets(new: SessionStatus) -> None:
     assert should_notify(SessionStatus.IDLE, new) is False

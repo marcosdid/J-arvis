@@ -10,6 +10,7 @@ from orchestrator.sandbox.aijail import (
     detect_terminal,
 )
 from orchestrator.sandbox.runtime import JailHandle
+from orchestrator.sandbox.settings_writer import write_settings_into_jail
 
 
 class FakeProcessOps:
@@ -169,3 +170,34 @@ async def test_aijail_runtime_kill_swallows_process_lookup_error() -> None:
     await runtime.kill(JailHandle(id="x", pid=99, started_at=datetime.now(UTC)))
 
     assert ops.kill_calls == [99]
+
+
+@pytest.mark.unit
+async def test_aijail_runtime_spawn_writes_settings_when_token_and_base_url_provided(
+    tmp_path: Path,
+) -> None:
+    ops = FakeProcessOps()
+    runtime = AiJailRuntime(terminal_resolver=lambda: "kitty", process_ops=ops)
+
+    await runtime.spawn(tmp_path, token="tok-x", base_url="http://h:1")
+
+    assert (tmp_path / ".claude" / "settings.json").is_file()
+    assert ".claude/settings.json" in (tmp_path / ".gitignore").read_text()
+
+
+@pytest.mark.unit
+async def test_aijail_runtime_kill_removes_settings_when_worktree_provided(
+    tmp_path: Path,
+) -> None:
+    write_settings_into_jail(tmp_path, token="tok-x", base_url="http://h:1")
+    assert (tmp_path / ".claude" / "settings.json").is_file()
+
+    ops = FakeProcessOps()
+    runtime = AiJailRuntime(terminal_resolver=lambda: "kitty", process_ops=ops)
+
+    await runtime.kill(
+        JailHandle(id="x", pid=99, started_at=datetime.now(UTC)),
+        worktree=tmp_path,
+    )
+
+    assert not (tmp_path / ".claude" / "settings.json").exists()
