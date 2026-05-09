@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from orchestrator.api.projects import router as projects_router
 from orchestrator.api.sessions import router as sessions_router
 from orchestrator.api.worktrees import router as worktrees_router
+from orchestrator.api.ws import router as ws_router
 from orchestrator.config import RuntimeMode, Settings
 from orchestrator.core.health import health_status
 from orchestrator.hooks.router import router as hooks_router
@@ -50,6 +51,7 @@ def create_app(
         if runtime is not None:
             app.include_router(sessions_router, prefix="/api")
         app.include_router(hooks_router, prefix="/api")
+        app.include_router(ws_router)
 
     if ui_dist is not None and ui_dist.is_dir():
         app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")
