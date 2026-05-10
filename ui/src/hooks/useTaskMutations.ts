@@ -5,7 +5,7 @@ import { queryKeys } from '../lib/query-keys';
 export function useCreateTask() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.createTask,
+    mutationFn: (input: Parameters<typeof api.createTask>[0]) => api.createTask(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.tasks }),
   });
 }
