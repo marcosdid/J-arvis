@@ -15,11 +15,25 @@ export type Worktree = {
 export type Session = {
   id: string;
   worktree_id: string;
+  task_id: string;
   status: string;
   pid: number | null;
   jail_id: string | null;
   started_at: string;
   ended_at: string | null;
+};
+
+export type Task = {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  state: string;
+  template: string | null;
+  permission_profile: string | null;
+  created_at: string;
+  updated_at: string;
+  active_session_id: string | null;
 };
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
@@ -58,4 +72,23 @@ export const api = {
     }),
   stopSession: (id: string) =>
     http<void>(`/sessions/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
+  listTasks: (projectIds?: string[]) => {
+    const qs = projectIds?.length
+      ? `?project_ids=${encodeURIComponent(projectIds.join(','))}`
+      : '';
+    return http<Task[]>(`/tasks${qs}`);
+  },
+  getTask: (id: string) => http<Task>(`/tasks/${encodeURIComponent(id)}`),
+  createTask: (input: { project_id: string; title: string; description?: string }) =>
+    http<Task>('/tasks', { method: 'POST', body: JSON.stringify(input) }),
+  patchTask: (id: string, patch: Partial<Pick<Task, 'title' | 'description' | 'state'>>) =>
+    http<Task>(`/tasks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  startTaskSession: (taskId: string, worktreeId: string) =>
+    http<Session>(`/tasks/${encodeURIComponent(taskId)}/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ worktree_id: worktreeId }),
+    }),
 };
