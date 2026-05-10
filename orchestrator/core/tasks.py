@@ -77,13 +77,27 @@ async def create_task(
     project_id: str,
     title: str,
     description: str = "",
+    branch: str | None = None,
 ) -> Task:
     if not title or not title.strip():
         raise InvalidTaskTitleError("title cannot be empty or whitespace-only")
+    if branch is not None and (
+        len(branch) > _BRANCH_OVERRIDE_MAX
+        or not _BRANCH_OVERRIDE_RE.match(branch)
+    ):
+        raise InvalidBranchOverrideError(
+            f"branch must match ^[a-z0-9][a-z0-9._/-]*$ "
+            f"and be <= {_BRANCH_OVERRIDE_MAX} chars"
+        )
     project = await db.get(Project, project_id)
     if project is None:
         raise ProjectNotFoundForTaskError(f"project not found: {project_id}")
-    row = Task(project_id=project_id, title=title, description=description)
+    row = Task(
+        project_id=project_id,
+        title=title,
+        description=description,
+        branch=branch,
+    )
     db.add(row)
     await db.commit()
     await db.refresh(row)
@@ -168,24 +182,3 @@ async def update_task(
     return row, previous_state
 
 
-async def ensure_task_for_quick_session(
-    db: AsyncSession,
-    *,
-    worktree_id: str,
-) -> Task:
-    """Create implicit task for a quick (worktree-driven) session."""
-    worktree = await db.get(Worktree, worktree_id)
-    if worktree is None:
-        raise ProjectNotFoundForTaskError(f"worktree not found: {worktree_id}")
-    branch = worktree.branch or "(detached)"
-    title = f"Quick session · {branch}"
-    row = Task(
-        project_id=worktree.project_id,
-        title=title,
-        description="",
-        state="in_progress",
-    )
-    db.add(row)
-    await db.commit()
-    await db.refresh(row)
-    return row

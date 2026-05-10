@@ -8,16 +8,21 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from orchestrator.api._deps import get_db_session, resolve_runtime
+from orchestrator.api._deps import get_db_session, resolve_git_ops, resolve_runtime
+from orchestrator.core.git import GitWorktreeError, GitWorktreeOps
 from orchestrator.core.sessions import (
-    WorktreeNotFoundError,
+    CwdAlreadyExistsError,
     start_session,
 )
+from orchestrator.core.slug import InvalidBranchSlugError
 from orchestrator.core.tasks import (
+    BranchImmutableAfterFirstSessionError,
+    InvalidBranchOverrideError,
     InvalidTaskTitleError,
     InvalidTransitionError,
     ProjectNotFoundForTaskError,
     TaskAlreadyHasActiveSessionError,
+    TaskHasActiveSessionError,
     TaskInTerminalStateError,
     TaskNotFoundError,
     create_task,
@@ -25,6 +30,7 @@ from orchestrator.core.tasks import (
     list_tasks,
     update_task,
 )
+from orchestrator.core.worktrees import cleanup_task_worktrees
 from orchestrator.events.envelope import WsEvent
 from orchestrator.sandbox.runtime import SessionRuntime
 from orchestrator.store.models import ClaudeSession
@@ -34,12 +40,14 @@ class TaskCreatePayload(BaseModel):
     project_id: str
     title: str
     description: str = ""
+    branch: str | None = None
 
 
 class TaskPatchPayload(BaseModel):
     title: str | None = None
     description: str | None = None
     state: str | None = None
+    branch: str | None = None
 
 
 class TaskRead(BaseModel):
@@ -50,6 +58,7 @@ class TaskRead(BaseModel):
     state: str
     template: str | None
     permission_profile: str | None
+    branch: str | None
     created_at: datetime
     updated_at: datetime
     active_session_id: str | None = None
@@ -58,13 +67,17 @@ class TaskRead(BaseModel):
 
 
 class SessionCreatePayload(BaseModel):
-    worktree_id: str
+    """F5 daemon picks the cwd; clients send empty body. ``extra=forbid``
+    rejects legacy ``{"worktree_id": ...}`` clients with HTTP 422 (Pydantic).
+    """
+
+    model_config = {"extra": "forbid"}
 
 
 class SessionRead(BaseModel):
     id: str
-    worktree_id: str
     task_id: str
+    cwd: str
     status: str
     pid: int | None
     jail_id: str | None
@@ -103,8 +116,9 @@ async def post_task(
             project_id=payload.project_id,
             title=payload.title,
             description=payload.description,
+            branch=payload.branch,
         )
-    except InvalidTaskTitleError as exc:
+    except (InvalidTaskTitleError, InvalidBranchOverrideError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ProjectNotFoundForTaskError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -164,6 +178,7 @@ async def patch_task(
     payload: TaskPatchPayload,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db_session)],
+    git: Annotated[GitWorktreeOps, Depends(resolve_git_ops)],
 ) -> TaskRead:
     try:
         row, previous_state = await update_task(
@@ -172,15 +187,24 @@ async def patch_task(
             title=payload.title,
             description=payload.description,
             state=payload.state,
+            branch=payload.branch,
         )
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except InvalidTaskTitleError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except InvalidTransitionError as exc:
+    except (
+        InvalidTaskTitleError,
+        InvalidTransitionError,
+        BranchImmutableAfterFirstSessionError,
+        InvalidBranchOverrideError,
+        TaskHasActiveSessionError,
+    ) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     broadcaster = request.app.state.ws_broadcaster
+
+    if payload.state in ("done", "discarded") and previous_state is not None:
+        await cleanup_task_worktrees(db, git, broadcaster, task_id)
+
     if broadcaster is not None and previous_state is not None:
         await broadcaster.publish(WsEvent.task_updated(
             task_id=row.id,
@@ -196,30 +220,26 @@ async def patch_task(
 @router.post("/{task_id}/sessions", status_code=201, response_model=SessionRead)
 async def post_task_session(
     task_id: str,
-    payload: SessionCreatePayload,
+    payload: SessionCreatePayload,  # Pydantic validates extra=forbid
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db_session)],
     runtime: Annotated[SessionRuntime, Depends(resolve_runtime)],
+    git: Annotated[GitWorktreeOps, Depends(resolve_git_ops)],
 ) -> SessionRead:
     registry = request.app.state.token_registry
     base_url = request.app.state.hook_base_url
     broadcaster = request.app.state.ws_broadcaster
-
-    try:
-        task = await get_task(db, task_id)
-    except TaskNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    prev_state = task.state
 
     async with _task_start_locks[task_id]:
         try:
             row = await start_session(
                 db,
                 runtime,
+                git,
                 task_id=task_id,
-                worktree_id=payload.worktree_id,
                 token_registry=registry,
                 base_url=base_url,
+                broadcaster=broadcaster,
             )
         except TaskNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -227,17 +247,9 @@ async def post_task_session(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except TaskAlreadyHasActiveSessionError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except WorktreeNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    await db.refresh(task)
-    if broadcaster is not None and task.state != prev_state:
-        await broadcaster.publish(WsEvent.task_updated(
-            task_id=task_id,
-            project_id=task.project_id,
-            title=task.title,
-            new_state=task.state,
-            previous_state=prev_state,
-        ))
+        except (InvalidBranchSlugError, CwdAlreadyExistsError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except GitWorktreeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return SessionRead.model_validate(row)

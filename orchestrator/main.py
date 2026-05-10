@@ -10,6 +10,7 @@ from orchestrator.api.projects import router as projects_router
 from orchestrator.api.sessions import router as sessions_router
 from orchestrator.api.tasks import router as tasks_router
 from orchestrator.api.worktrees import router as worktrees_router
+from orchestrator.api.worktrees import worktree_router
 from orchestrator.api.ws import router as ws_router
 from orchestrator.config import RuntimeMode, Settings
 from orchestrator.core.git import SubprocessGitWorktreeOps
@@ -47,7 +48,7 @@ def create_app(
     app.state.ws_broadcaster = getattr(app.state, "ws_broadcaster", None)
     app.state.notifier = getattr(app.state, "notifier", None)
     app.state.hook_base_url = getattr(app.state, "hook_base_url", None)
-    app.state.git_ops = getattr(app.state, "git_ops", None)
+    app.state.git_ops = getattr(app.state, "git_ops", None) or SubprocessGitWorktreeOps()
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -56,6 +57,7 @@ def create_app(
     if database is not None:
         app.include_router(projects_router, prefix="/api")
         app.include_router(worktrees_router, prefix="/api")
+        app.include_router(worktree_router, prefix="/api")
         app.include_router(tasks_router, prefix="/api")
         if runtime is not None:
             app.include_router(sessions_router, prefix="/api")

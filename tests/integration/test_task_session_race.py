@@ -8,7 +8,6 @@ from orchestrator.main import create_app
 from orchestrator.store.database import Database
 from tests.integration.conftest import (
     FakeSessionRuntime,
-    _create_project_and_worktree,
     _make_repo,
 )
 
@@ -21,11 +20,11 @@ async def test_two_concurrent_starts_one_wins_one_409(
     app = create_app(database=db, runtime=runtime, ui_dist=None)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        pid, wid = await _create_project_and_worktree(client, repo)
-        t = (await client.post("/api/tasks", json={"project_id": pid, "title": "T"})).json()
+        proj = (await client.post("/api/projects", json={"name": "p", "path": str(repo)})).json()
+        t = (await client.post("/api/tasks", json={"project_id": proj["id"], "title": "T"})).json()
         rs = await asyncio.gather(
-            client.post(f"/api/tasks/{t['id']}/sessions", json={"worktree_id": wid}),
-            client.post(f"/api/tasks/{t['id']}/sessions", json={"worktree_id": wid}),
+            client.post(f"/api/tasks/{t['id']}/sessions", json={}),
+            client.post(f"/api/tasks/{t['id']}/sessions", json={}),
         )
-        statuses = sorted(r.status_code for r in rs)
-        assert statuses == [201, 409]
+    statuses = sorted(r.status_code for r in rs)
+    assert statuses == [201, 409]

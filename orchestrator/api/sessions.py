@@ -8,27 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from orchestrator.api._deps import get_db_session, resolve_runtime
 from orchestrator.core.sessions import (
     SessionNotFoundError,
-    WorktreeNotFoundError,
     list_sessions,
-    start_session,
     stop_session,
 )
-from orchestrator.core.tasks import (
-    ProjectNotFoundForTaskError,
-    ensure_task_for_quick_session,
-)
-from orchestrator.events.envelope import WsEvent
 from orchestrator.sandbox.runtime import SessionRuntime
-
-
-class SessionCreatePayload(BaseModel):
-    worktree_id: str
 
 
 class SessionRead(BaseModel):
     id: str
     task_id: str
-    worktree_id: str
+    cwd: str
     status: str
     pid: int | None
     jail_id: str | None
@@ -39,42 +28,6 @@ class SessionRead(BaseModel):
 
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
-
-
-@router.post("", status_code=201, response_model=SessionRead)
-async def post_session(
-    payload: SessionCreatePayload,
-    request: Request,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    runtime: Annotated[SessionRuntime, Depends(resolve_runtime)],
-) -> SessionRead:
-    registry = request.app.state.token_registry
-    base_url = request.app.state.hook_base_url
-    broadcaster = request.app.state.ws_broadcaster
-    try:
-        task = await ensure_task_for_quick_session(
-            session, worktree_id=payload.worktree_id
-        )
-        row = await start_session(
-            session,
-            runtime,
-            task_id=task.id,
-            worktree_id=payload.worktree_id,
-            token_registry=registry,
-            base_url=base_url,
-        )
-    except (WorktreeNotFoundError, ProjectNotFoundForTaskError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    if broadcaster is not None:
-        await broadcaster.publish(WsEvent.task_created(
-            task_id=task.id,
-            project_id=task.project_id,
-            title=task.title,
-            state=task.state,
-        ))
-
-    return SessionRead.model_validate(row)
 
 
 @router.get("", response_model=list[SessionRead])

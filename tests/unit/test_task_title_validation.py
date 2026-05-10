@@ -2,7 +2,9 @@ import pytest
 
 from orchestrator.core.projects import create_project
 from orchestrator.core.tasks import (
-    InvalidTaskTitleError, create_task, update_task,
+    InvalidTaskTitleError,
+    create_task,
+    update_task,
 )
 
 

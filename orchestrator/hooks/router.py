@@ -20,7 +20,7 @@ from orchestrator.hooks.parser import (
 )
 from orchestrator.hooks.tokens import TokenRegistry
 from orchestrator.notifications.sink import NotifierSink, should_notify
-from orchestrator.store.models import ClaudeSession, Project, Worktree
+from orchestrator.store.models import ClaudeSession, Project, Task
 
 router = APIRouter()
 
@@ -35,13 +35,13 @@ async def _summary(session: AsyncSession, session_id: str) -> str:
     row = await session.get(ClaudeSession, session_id)
     if row is None:  # pragma: no cover
         return "?"
-    wt = await session.get(Worktree, row.worktree_id)
-    if wt is None:  # pragma: no cover
+    task = await session.get(Task, row.task_id)
+    if task is None:  # pragma: no cover
         return "?"
-    proj = await session.get(Project, wt.project_id)
+    proj = await session.get(Project, task.project_id)
     name = proj.name if proj else "?"
-    branch = wt.branch or "(detached)"
-    return f"J-arvis · {name} · {branch}"
+    title = task.title or "?"
+    return f"J-arvis · {name} · {title}"
 
 
 def _resolve_or_404(token: str, registry: TokenRegistry) -> str:

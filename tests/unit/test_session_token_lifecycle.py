@@ -1,4 +1,7 @@
+"""F5: token registration / revocation lifecycle around start_session/stop_session."""
+import shutil
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -6,9 +9,30 @@ import pytest
 from orchestrator.core.sessions import start_session, stop_session
 from orchestrator.core.tasks import create_task
 from orchestrator.hooks.tokens import TokenRegistry
+from orchestrator.sandbox.runtime import JailHandle
 from orchestrator.store.database import Database
-from orchestrator.store.models import Project, Repository, Worktree
-from tests.integration.conftest import FakeSessionRuntime
+from orchestrator.store.models import Project, Repository
+
+
+class FakeGitOps:
+    async def add(self, repo: Path, target: Path, branch: str) -> None:
+        target.mkdir(parents=True, exist_ok=True)
+        (target / ".git").write_text("ref")
+
+    async def remove(self, repo: Path, target: Path, *, force: bool = False) -> None:
+        if target.exists():
+            shutil.rmtree(target)
+
+    async def list(self, repo: Path):
+        return []
+
+
+class FakeRuntime:
+    async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
+        return JailHandle(id="fake", pid=1, started_at=datetime.now(UTC))
+
+    async def kill(self, handle, *, worktree=None) -> None:
+        pass
 
 
 @pytest.fixture
@@ -21,39 +45,31 @@ async def db(tmp_path: Path) -> AsyncIterator[Database]:
         await database.close()
 
 
-async def _seed_worktree(database: Database, worktree_path: str) -> tuple[str, str]:
-    async with database.session() as s:
-        proj = Project(name="p", path=worktree_path + "-proj")
-        s.add(proj)
+async def _seed_project(db: Database, tmp_path: Path) -> str:
+    base = tmp_path / "p"
+    base.mkdir()
+    async with db.session() as s:
+        p = Project(name="p", path=str(base))
+        s.add(p)
+        await s.flush()
+        r = Repository(project_id=p.id, name="p", sub_path=".")
+        s.add(r)
         await s.commit()
-        await s.refresh(proj)
-        repo = Repository(project_id=proj.id, name="p", sub_path=".")
-        s.add(repo)
-        await s.commit()
-        await s.refresh(repo)
-        wt = Worktree(
-            repository_id=repo.id, task_id=None, path=worktree_path, branch="main",
-        )
-        s.add(wt)
-        await s.commit()
-        await s.refresh(wt)
-        return wt.id, proj.id
+        return p.id
 
 
 @pytest.mark.asyncio
-async def test_start_session_registers_token_when_registry_provided(db: Database) -> None:
-    worktree_path = "/tmp/test-wt-start"
-    worktree_id, project_id = await _seed_worktree(db, worktree_path)
-    runtime = FakeSessionRuntime()
+async def test_start_session_registers_token_when_registry_provided(
+    db: Database, tmp_path: Path,
+) -> None:
+    pid = await _seed_project(db, tmp_path)
     registry = TokenRegistry()
 
     async with db.session() as s:
-        t = await create_task(s, project_id=project_id, title="seed")
+        t = await create_task(s, project_id=pid, title="seed")
         row = await start_session(
-            s,
-            runtime,
+            s, FakeRuntime(), FakeGitOps(),
             task_id=t.id,
-            worktree_id=worktree_id,
             token_registry=registry,
             base_url="http://localhost:8000",
         )
@@ -63,19 +79,18 @@ async def test_start_session_registers_token_when_registry_provided(db: Database
 
 
 @pytest.mark.asyncio
-async def test_stop_session_revokes_token_when_registry_provided(db: Database) -> None:
-    worktree_path = "/tmp/test-wt-stop"
-    worktree_id, project_id = await _seed_worktree(db, worktree_path)
-    runtime = FakeSessionRuntime()
+async def test_stop_session_revokes_token_when_registry_provided(
+    db: Database, tmp_path: Path,
+) -> None:
+    pid = await _seed_project(db, tmp_path)
     registry = TokenRegistry()
+    runtime = FakeRuntime()
 
     async with db.session() as s:
-        t = await create_task(s, project_id=project_id, title="seed")
+        t = await create_task(s, project_id=pid, title="seed")
         row = await start_session(
-            s,
-            runtime,
+            s, runtime, FakeGitOps(),
             task_id=t.id,
-            worktree_id=worktree_id,
             token_registry=registry,
             base_url="http://localhost:8000",
         )

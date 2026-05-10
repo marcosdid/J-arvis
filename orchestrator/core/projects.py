@@ -1,33 +1,22 @@
 # Domain layer for projects.
 #
-# F1 trade-off: this module imports SQLAlchemy types directly. ARCHITECTURE.md §10
-# advocates Protocol-based seams between core/ and store/, but for F1 we have a
-# single storage implementation and no isolated unit tests on the domain. A
-# ProjectRepository Protocol can be introduced when we get a second implementation
-# (e.g., in-memory fake for fast unit tests) or another storage backend.
+# F5: path validation moved to ``core.repositories.detect_repos`` (a project
+# may now map to N git repos under a single base_path). The old
+# ``PathDoesNotExistError``/``NotAGitRepoError`` aren't raised anymore — the
+# new code path returns ``NoGitReposError`` from detect_repos via the API.
+#
+# ``create_project`` is retained as a unit-test helper (skip path validation)
+# and is NOT used by the API. Production projects are created via
+# ``api.projects.post_project`` which calls ``detect_repos`` directly.
 from collections.abc import Sequence
-from pathlib import Path
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from orchestrator.store.models import Project, Task
 
 
-class PathDoesNotExistError(Exception):
-    pass
-
-
-class NotAGitRepoError(Exception):
-    pass
-
-
 class ProjectNotFoundError(Exception):
-    pass
-
-
-class DuplicateProjectError(Exception):
     pass
 
 
@@ -35,24 +24,12 @@ class ProjectHasTasksError(Exception):
     pass
 
 
-def _validate_path(path: str) -> Path:
-    candidate = Path(path)
-    if not candidate.is_dir():
-        raise PathDoesNotExistError(f"path does not exist or is not a directory: {path}")
-    if not (candidate / ".git").exists():
-        raise NotAGitRepoError(f"not a git repository: {path}")
-    return candidate
-
-
 async def create_project(session: AsyncSession, name: str, path: str) -> Project:
-    _validate_path(path)
+    """Create a Project row directly. Test-only helper: bypasses the path
+    validation done by the API. Production code uses POST /api/projects."""
     project = Project(name=name, path=path)
     session.add(project)
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise DuplicateProjectError(f"a project with that path already exists: {path}") from exc
+    await session.commit()
     await session.refresh(project)
     return project
 
