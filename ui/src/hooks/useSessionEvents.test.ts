@@ -20,8 +20,17 @@ describe('useSessionEvents', () => {
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useSessionEvents(qc));
     const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
-    onEvent({ type: 'session.status', session_id: 'x', payload: { status: 'idle', previous: 'executing' }, at: '' });
+    onEvent({ type: 'session.status', session_id: 'x', task_id: null, payload: { status: 'idle', previous: 'executing' }, at: '' });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions });
+  });
+
+  it('invalidates tasks queries on session.status', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({ type: 'session.status', session_id: 'x', task_id: null, payload: { status: 'idle', previous: 'executing' }, at: '' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tasks });
   });
 
   it('invalidates on session.stopped too', () => {
@@ -29,7 +38,34 @@ describe('useSessionEvents', () => {
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useSessionEvents(qc));
     const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
-    onEvent({ type: 'session.stopped', session_id: 'x', payload: {}, at: '' });
+    onEvent({ type: 'session.stopped', session_id: 'x', task_id: null, payload: {}, at: '' });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions });
+  });
+
+  it('invalidates tasks queries on session.stopped', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({ type: 'session.stopped', session_id: 'x', task_id: null, payload: {}, at: '' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tasks });
+  });
+
+  it('invalidates tasks queries on task.created', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({ type: 'task.created', session_id: '', task_id: 'abc', payload: { project_id: 'p1', title: 'T', state: 'backlog' }, at: '' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tasks });
+  });
+
+  it('invalidates tasks queries on task.updated', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({ type: 'task.updated', session_id: '', task_id: 'abc', payload: { project_id: 'p1', title: 'T', state: 'doing', previous_state: 'backlog' }, at: '' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tasks });
   });
 });

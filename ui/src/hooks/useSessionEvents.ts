@@ -11,9 +11,17 @@ export function useSessionEvents(queryClient: QueryClient): void {
       dispatch(event, {
         'session.status': () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+          queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
         },
         'session.stopped': () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+          queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+        },
+        'task.created': () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+        },
+        'task.updated': () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
         },
       });
     });
