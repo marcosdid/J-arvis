@@ -194,7 +194,7 @@ Cada fase termina demonstrável + verde nas três camadas.
 | **F1 — Spawn isolado** | UI lista projetos/worktrees, botão "Nova sessão" abre Claude Code dentro de ai-jail | `Project`, `Worktree`, `Session`, `SessionRuntime` real, status básico |
 | **F2 — Status semântico via hooks** | Cards mostram `awaiting_response` / `idle` em tempo real | `/hooks/*`, parser de eventos, broadcast WS, `notify-send` |
 | ~~F3~~ | **Cancelada** — fundida em F2; ver [ADR-0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | — |
-| **F4 — Backlog kanban** | Kanban unificado cross-project; criar/mover/discardar tasks; iniciar sessão de uma task; quick session cria task implícita | `Task`, kanban UI 5 colunas com `@dnd-kit`, `Session.task_id` NOT NULL, drawer lateral pra projects/worktrees |
+| **F4 — Backlog kanban** ✅ | Kanban unificado cross-project; criar/mover/discardar tasks; iniciar sessão de uma task; quick session cria task implícita | `Task`, kanban UI 5 colunas com `@dnd-kit`, `Session.task_id` NOT NULL, drawer lateral pra projects/worktrees. F4.m fechou gate de cobertura (auto-marker em `tests/conftest.py`) |
 | **F5 — Mapa de worktrees** | Árvore visual por projeto; criar/destruir worktree pela UI | git ops, vinculação a tasks |
 | **F6 — Run from Panel** | Botão ▶ Run sobe DB+back+front e abre URL | manifesto, bootstrap por Claude, alocação de portas, Docker descartável, lifecycle |
 | **F7 — Templates + perfis** | Templates frontend/backend/refactor/bugfix com perfil pré-aprovado | catálogo, perfil aplicado no spawn |

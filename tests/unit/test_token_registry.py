@@ -29,3 +29,16 @@ def test_revoke_removes_token() -> None:
 
 def test_revoke_unknown_is_noop() -> None:
     TokenRegistry().revoke("never-registered")  # must not raise
+
+
+def test_find_token_for_returns_token_when_registered() -> None:
+    reg = TokenRegistry()
+    token = generate_token()
+    reg.register(token, "sess-1")
+    assert reg.find_token_for("sess-1") == token
+
+
+def test_find_token_for_returns_none_when_session_id_unknown() -> None:
+    reg = TokenRegistry()
+    reg.register(generate_token(), "sess-1")
+    assert reg.find_token_for("sess-other") is None

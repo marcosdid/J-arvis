@@ -4171,13 +4171,34 @@ EOF
 
 ## Encerramento — checklist final F4
 
-- [ ] Todos os tests F2 e F1 pré-existentes passam (regressão zero)
-- [ ] `uv run pytest tests/unit -q`: 100% verde
-- [ ] `uv run pytest tests/integration -q`: 100% verde
-- [ ] `pnpm --dir ui exec vitest run`: 100% verde
-- [ ] `uv run pytest tests/e2e -v`: passa (do host)
-- [ ] `uv run pytest --cov=orchestrator --cov-fail-under=100`
-- [ ] Demo manual roteiro inteiro funciona
-- [ ] `git log --oneline | head -20` mostra 12-13 commits F4.X consecutivos
-- [ ] `gotchas.md` revisado — adicionar entry se algum aprendizado novo (ex: dnd-kit + Playwright drag quirks)
+- [x] Todos os tests F2 e F1 pré-existentes passam (regressão zero)
+- [x] `uv run pytest tests/unit -q`: 100% verde (após F4.m)
+- [x] `uv run pytest tests/integration -q`: 100% verde (após F4.m)
+- [x] `pnpm --dir ui exec vitest run`: 100% verde (após F4.m)
+- [ ] `uv run pytest tests/e2e -v`: passa (do host) — **adiado**, deve rodar do host fora da jaula; F4 fechada sem essa demo
+- [x] `uv run pytest --cov=orchestrator --cov-fail-under=100` (após F4.m: auto-marker + 4 testes novos)
+- [ ] Demo manual roteiro inteiro funciona — **adiado** junto com E2E; usuário valida do host quando quiser
+- [x] `git log --oneline | head -20` mostra 13+ commits F4.X consecutivos (F4.0 → F4.l + F4.m)
+- [x] `gotchas.md` revisado — entry #11 sobre marker silencioso adicionada em F4.m
 - [ ] Push da branch (`git push origin claude/fresh-start-cleanup-XDaHV`) — depende de fora da jaula
+
+## F4.m — coverage gap completion (post-mortem)
+
+Adicionada após `feat(F4.l)` quando o gate `--cov-fail-under=100` falhou
+em 97.36% (Python) e 93.33% (UI). Investigação revelou duas causas:
+
+1. **Marker config** (causa principal). 18 de 23 arquivos `tests/unit/*.py`
+   não declaravam `pytestmark = pytest.mark.unit` — silenciosamente
+   desselecionados pelo `-m "unit or integration"` do `make test-all`.
+   Sintoma: `207 collected / 116 deselected`. Fix: auto-marker em
+   `tests/conftest.py` aplica marker baseado no diretório-pai. Coverage
+   subiu de 97.36% → 99.45% só com isso.
+2. **Gaps reais** (3 linhas Python + ~4 cenários UI): teste para
+   `find_token_for` fall-through, race interna em `start_task_session`
+   (TaskNotFoundError do `get_task` interno), branch `task.state ==
+   prev_state` no broadcast `task.updated`, hook `useTasks` com
+   `projectIds` undefined/vazio/com-ids, endpoints de tasks no `api.ts`
+   (5 endpoints), `query-keys.tasksForProject`.
+
+Resultado: Python 100% (211 testes), UI 100% (113 testes). Gotcha #11
+documentado em `gotchas.md`.

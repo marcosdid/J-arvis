@@ -162,3 +162,30 @@ normalmente — o server tá rodando, só os logs sumiram.
 
 **Como aplicar:** já corrigido em `alembic/env.py`:
 `fileConfig(config.config_file_name, disable_existing_loggers=False)`.
+
+## 11. Tests sem marker viram invisíveis sob `-m "unit or integration"`
+
+**Regra:** `pyproject.toml` declara markers `unit`, `integration`, `e2e`
+e roda o gate de cobertura com `-m "unit or integration"`. Tests que não
+declaram marker (`pytestmark = pytest.mark.X` no topo do módulo, ou
+`@pytest.mark.X` na função) são **silenciosamente desselecionados** —
+o output de pytest mostra `N collected / M deselected` mas o número de
+deselected não chama atenção. Resultado: arquivos novos sem marker não
+rodam no gate, e a cobertura efetiva cai sem que isso quebre o gate
+(porque os arquivos faltam, não falham).
+
+**Como detectar:** rodar com e sem `-m`:
+```bash
+uv run pytest tests/unit tests/integration -m "unit or integration" --cov=orchestrator
+uv run pytest tests/unit tests/integration --cov=orchestrator
+```
+Se a contagem de testes diverge (ex: 91 vs 207) e cobertura sobe quando
+o filtro sai, é esse problema. Outra pista: cobertura reporta linhas
+faltando em arquivos que claramente têm `tests/unit/test_*.py`
+correspondente passando.
+
+**Como aplicar:** já corrigido por auto-marker em `tests/conftest.py`:
+`pytest_collection_modifyitems` aplica `unit`/`integration`/`e2e`
+baseado no diretório-pai do teste (`tests/unit/...` → `pytest.mark.unit`,
+etc). Novos arquivos não precisam declarar marker. Decorators e
+`pytestmark` legados continuam funcionando (markers acumulam).
