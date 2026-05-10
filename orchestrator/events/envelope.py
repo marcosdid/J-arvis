@@ -114,3 +114,33 @@ class WsEvent:
                 "branch": branch,
             },
         )
+
+    @classmethod
+    def worktree_removed(
+        cls,
+        *,
+        worktree_id: str,
+        project_id: str,
+        task_id: str | None,
+    ) -> "WsEvent":
+        return cls(
+            type="worktree.removed",
+            session_id="",
+            task_id=task_id,
+            payload={"worktree_id": worktree_id, "project_id": project_id},
+        )
+
+    @classmethod
+    def worktree_orphaned(
+        cls,
+        *,
+        worktree_id: str,
+        project_id: str,
+        path: str,
+    ) -> "WsEvent":
+        return cls(
+            type="worktree.orphaned",
+            session_id="",
+            task_id=None,
+            payload={"worktree_id": worktree_id, "project_id": project_id, "path": path},
+        )

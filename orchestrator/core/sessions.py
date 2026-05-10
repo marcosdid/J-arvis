@@ -16,6 +16,7 @@ from orchestrator.core.tasks import (
     TaskInTerminalStateError,
     get_task,
 )
+from orchestrator.core.worktrees import list_worktrees_for_task
 from orchestrator.events.broadcaster import WsBroadcaster
 from orchestrator.events.envelope import WsEvent
 from orchestrator.hooks.tokens import TokenRegistry, generate_token
@@ -48,16 +49,6 @@ class SessionNotFoundError(Exception):
 
 class CwdAlreadyExistsError(Exception):
     """Raised when the derived cwd already exists on disk before worktree creation."""
-
-
-async def list_worktrees_for_task(
-    session: AsyncSession, task_id: str
-) -> list[Worktree]:
-    """Worktrees of a task ordered by path. Will move to core/worktrees.py in F5.f."""
-    result = await session.execute(
-        select(Worktree).where(Worktree.task_id == task_id).order_by(Worktree.path)
-    )
-    return list(result.scalars().all())
 
 
 def _derive_cwd(project_path: str, branch_slug: str) -> Path:
