@@ -13,6 +13,10 @@ from orchestrator.core.sessions import (
     start_session,
     stop_session,
 )
+from orchestrator.core.tasks import (
+    ProjectNotFoundForTaskError,
+    ensure_task_for_quick_session,
+)
 from orchestrator.sandbox.runtime import SessionRuntime
 
 
@@ -22,6 +26,7 @@ class SessionCreatePayload(BaseModel):
 
 class SessionRead(BaseModel):
     id: str
+    task_id: str
     worktree_id: str
     status: str
     pid: int | None
@@ -45,14 +50,18 @@ async def post_session(
     registry = request.app.state.token_registry
     base_url = request.app.state.hook_base_url
     try:
+        task = await ensure_task_for_quick_session(
+            session, worktree_id=payload.worktree_id
+        )
         row = await start_session(
             session,
             runtime,
-            payload.worktree_id,
+            task_id=task.id,
+            worktree_id=payload.worktree_id,
             token_registry=registry,
             base_url=base_url,
         )
-    except WorktreeNotFoundError as exc:
+    except (WorktreeNotFoundError, ProjectNotFoundForTaskError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return SessionRead.model_validate(row)
 
