@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0004"
@@ -121,6 +122,11 @@ def downgrade() -> None:
     sessions of multi-repo tasks (cwd is parent of N worktrees) cannot
     be perfectly mapped to a single worktree_id. Picks any worktree
     of the same task as fallback.
+
+    NB: ``sessions.worktree_id`` is left NULLABLE in the downgraded schema.
+    Sessions whose task had no remaining worktree get NULL — promoting
+    those to NOT NULL would either fail or silently violate the FK.
+    Keeping the column nullable matches the lossy contract.
     """
     bind = op.get_bind()
 
@@ -137,7 +143,6 @@ def downgrade() -> None:
         batch.create_foreign_key(
             "fk_sess_wt", "worktrees", ["worktree_id"], ["id"], ondelete="RESTRICT",
         )
-        batch.alter_column("worktree_id", nullable=False)
         batch.drop_column("cwd")
 
     with op.batch_alter_table("tasks") as batch:

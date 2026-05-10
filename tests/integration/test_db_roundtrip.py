@@ -1,13 +1,11 @@
 from pathlib import Path
 
-import pytest
 from sqlalchemy import select
 
 from orchestrator.store.database import Database
 from orchestrator.store.models import ClaudeSession, Project, Repository, Task, Worktree
 
 
-@pytest.mark.integration
 async def test_persist_and_query_project_worktree_session(tmp_path: Path) -> None:
     db = Database(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     await db.bootstrap()
