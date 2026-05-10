@@ -90,3 +90,27 @@ class WsEvent:
                 "previous_state": previous_state,
             },
         )
+
+    @classmethod
+    def worktree_created(
+        cls,
+        *,
+        worktree_id: str,
+        project_id: str,
+        repository_id: str,
+        task_id: str | None,
+        path: str,
+        branch: str | None,
+    ) -> "WsEvent":
+        return cls(
+            type="worktree.created",
+            session_id="",
+            task_id=task_id,
+            payload={
+                "worktree_id": worktree_id,
+                "project_id": project_id,
+                "repository_id": repository_id,
+                "path": path,
+                "branch": branch,
+            },
+        )
