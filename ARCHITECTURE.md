@@ -40,8 +40,9 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
 
 - `Project(id, name, path, created_at)`
 - `Worktree(id, project_id, path, branch, current_task_id?)`
-- `Task(id, project_id, title, description, state, template, permission_profile, created_at)`
+- `Task(id, project_id, title, description, state, template?, permission_profile?, created_at, updated_at)`
   - `state ∈ {idea, ready, in_progress, review, done, discarded}`
+  - `template`/`permission_profile` populados em F7. F4 deixa `NULL`.
 - `ClaudeSession(id, task_id, worktree_id, jail_id, status, pid, started_at, ended_at?, transcript_path)`
   - Classe nomeada `ClaudeSession` para não colidir com `sqlalchemy.orm.Session`/`AsyncSession`. Tabela `sessions`.
   - `status ∈ {executing, awaiting_response, idle, error, done}`
@@ -193,7 +194,7 @@ Cada fase termina demonstrável + verde nas três camadas.
 | **F1 — Spawn isolado** | UI lista projetos/worktrees, botão "Nova sessão" abre Claude Code dentro de ai-jail | `Project`, `Worktree`, `Session`, `SessionRuntime` real, status básico |
 | **F2 — Status semântico via hooks** | Cards mostram `awaiting_response` / `idle` em tempo real | `/hooks/*`, parser de eventos, broadcast WS, `notify-send` |
 | ~~F3~~ | **Cancelada** — fundida em F2; ver [ADR-0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | — |
-| **F4 — Backlog kanban** | Drag-and-drop entre estados; iniciar sessão a partir de uma task | `Task`, kanban UI, vínculo Task↔Session, templates iniciais |
+| **F4 — Backlog kanban** | Kanban unificado cross-project; criar/mover/discardar tasks; iniciar sessão de uma task; quick session cria task implícita | `Task`, kanban UI 5 colunas com `@dnd-kit`, `Session.task_id` NOT NULL, drawer lateral pra projects/worktrees |
 | **F5 — Mapa de worktrees** | Árvore visual por projeto; criar/destruir worktree pela UI | git ops, vinculação a tasks |
 | **F6 — Run from Panel** | Botão ▶ Run sobe DB+back+front e abre URL | manifesto, bootstrap por Claude, alocação de portas, Docker descartável, lifecycle |
 | **F7 — Templates + perfis** | Templates frontend/backend/refactor/bugfix com perfil pré-aprovado | catálogo, perfil aplicado no spawn |
@@ -231,3 +232,5 @@ criar novo ADR e atualizar `docs/adr/README.md`.**
 | Hooks via settings.json no jail | [0009](docs/adr/0009-hooks-via-settings-no-jail.md) | Daemon escreve `<worktree>/.claude/settings.json` antes de `ai-jail run` | Sandbox-clean, zero pegada em `~/.claude` |
 | WebSocket canal único | [0010](docs/adr/0010-websocket-canal-unico-envelope-tipado.md) | `/ws` + envelope tipado | Escala pra F4/F6 sem multiplicar canais |
 | F3 cancelada / fundida em F2 | [0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | Sem fila ativa, sem `ApprovalRequest`; `AWAITING_APPROVAL` removido do enum | Decisão de permissão fica no Claude Code (terminal nativo + `settings.json`); evita caminho paralelo |
+| Task como entidade primária | [0012](docs/adr/0012-task-como-entidade-primaria.md) | `Session.task_id` NOT NULL; quick session cria task implícita | Honra task-first do §1.2 |
+| Kanban unificado cross-project | [0013](docs/adr/0013-kanban-unificado-cross-project.md) | Single board com chip de projeto + filtros multi-select | Trabalho cross-project é o caso real |
