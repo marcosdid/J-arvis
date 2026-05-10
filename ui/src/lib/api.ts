@@ -1,21 +1,31 @@
+export type Repository = {
+  id: string;
+  name: string;
+  sub_path: string;
+};
+
 export type Project = {
   id: string;
   name: string;
   path: string;
   created_at: string;
+  repositories: Repository[];
 };
 
 export type Worktree = {
   id: string;
-  project_id: string;
+  repository_id: string;
+  repository_name: string;
+  task_id: string | null;
   path: string;
   branch: string | null;
+  is_orphan: boolean;
 };
 
 export type Session = {
   id: string;
-  worktree_id: string;
   task_id: string;
+  cwd: string;
   status: string;
   pid: number | null;
   jail_id: string | null;
@@ -31,6 +41,7 @@ export type Task = {
   state: string;
   template: string | null;
   permission_profile: string | null;
+  branch: string | null;
   created_at: string;
   updated_at: string;
   active_session_id: string | null;
@@ -64,12 +75,15 @@ export const api = {
     http<void>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   listWorktrees: (projectId: string) =>
     http<Worktree[]>(`/projects/${encodeURIComponent(projectId)}/worktrees`),
+  deleteWorktree: (id: string) =>
+    http<void>(`/worktrees/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   listSessions: () => http<Session[]>('/sessions'),
-  startSession: (worktreeId: string) =>
-    http<Session>('/sessions', {
-      method: 'POST',
-      body: JSON.stringify({ worktree_id: worktreeId }),
-    }),
+  // Deprecated F1/F4 quick-session endpoint dropped in F5 (decision #5).
+  // Kept as a throwing stub so existing UI callers compile until F5.j/F5.k
+  // remove the last reference. Calling it at runtime fails fast.
+  startSession: (_worktreeId: string): Promise<Session> => {
+    throw new Error('api.startSession is deprecated; use startTaskSession (F5)');
+  },
   stopSession: (id: string) =>
     http<void>(`/sessions/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
   listTasks: (projectIds?: string[]) => {
@@ -79,16 +93,23 @@ export const api = {
     return http<Task[]>(`/tasks${qs}`);
   },
   getTask: (id: string) => http<Task>(`/tasks/${encodeURIComponent(id)}`),
-  createTask: (input: { project_id: string; title: string; description?: string }) =>
-    http<Task>('/tasks', { method: 'POST', body: JSON.stringify(input) }),
-  patchTask: (id: string, patch: Partial<Pick<Task, 'title' | 'description' | 'state'>>) =>
+  createTask: (input: {
+    project_id: string;
+    title: string;
+    description?: string;
+    branch?: string;
+  }) => http<Task>('/tasks', { method: 'POST', body: JSON.stringify(input) }),
+  patchTask: (
+    id: string,
+    patch: Partial<Pick<Task, 'title' | 'description' | 'state' | 'branch'>>,
+  ) =>
     http<Task>(`/tasks/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
-  startTaskSession: (taskId: string, worktreeId: string) =>
+  startTaskSession: (taskId: string) =>
     http<Session>(`/tasks/${encodeURIComponent(taskId)}/sessions`, {
       method: 'POST',
-      body: JSON.stringify({ worktree_id: worktreeId }),
+      body: JSON.stringify({}),
     }),
 };

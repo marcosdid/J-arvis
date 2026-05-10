@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { api } from './api';
+import { api, type Project, type Repository, type Task, type Worktree } from './api';
 
 type FetchSpy = ReturnType<typeof vi.fn>;
 
@@ -54,17 +54,25 @@ describe('api', () => {
     expect(fetchSpy).toHaveBeenCalledWith('/api/projects/p1/worktrees', expect.any(Object));
   });
 
+  it('deleteWorktree: DELETE /api/worktrees/{id} returns void on 204', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const result = await api.deleteWorktree('w1');
+    expect(result).toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/worktrees/w1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
   it('listSessions: GET /api/sessions', async () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse([]));
     await api.listSessions();
     expect(fetchSpy).toHaveBeenCalledWith('/api/sessions', expect.any(Object));
   });
 
-  it('startSession: POST /api/sessions with worktree_id', async () => {
-    fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 's' }, 201));
-    await api.startSession('w1');
-    const call = fetchSpy.mock.calls[0]!;
-    expect(JSON.parse(call[1].body)).toEqual({ worktree_id: 'w1' });
+  it('startSession: deprecated stub throws synchronously', () => {
+    expect(() => api.startSession('w1')).toThrow(/deprecated/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('stopSession: POST /api/sessions/{id}/stop returns void on 204', async () => {
@@ -116,6 +124,17 @@ describe('api', () => {
     });
   });
 
+  it('createTask: POST /api/tasks accepts optional branch', async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 't1' }, 201));
+    await api.createTask({ project_id: 'p1', title: 'T', branch: 'feature/foo' });
+    const call = fetchSpy.mock.calls[0]!;
+    expect(JSON.parse(call[1].body)).toEqual({
+      project_id: 'p1',
+      title: 'T',
+      branch: 'feature/foo',
+    });
+  });
+
   it('patchTask: PATCH /api/tasks/{id} with partial body', async () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 't1' }));
     await api.patchTask('t1', { state: 'ready' });
@@ -125,12 +144,59 @@ describe('api', () => {
     expect(JSON.parse(call[1].body)).toEqual({ state: 'ready' });
   });
 
-  it('startTaskSession: POST /api/tasks/{id}/sessions with worktree_id', async () => {
+  it('patchTask: accepts branch field', async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 't1' }));
+    await api.patchTask('t1', { branch: 'release/v1' });
+    const call = fetchSpy.mock.calls[0]!;
+    expect(JSON.parse(call[1].body)).toEqual({ branch: 'release/v1' });
+  });
+
+  it('startTaskSession: POST /api/tasks/{id}/sessions with empty body', async () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 's1' }, 201));
-    await api.startTaskSession('t1', 'w1');
+    await api.startTaskSession('t1');
     const call = fetchSpy.mock.calls[0]!;
     expect(call[0]).toBe('/api/tasks/t1/sessions');
     expect(call[1].method).toBe('POST');
-    expect(JSON.parse(call[1].body)).toEqual({ worktree_id: 'w1' });
+    expect(JSON.parse(call[1].body)).toEqual({});
+  });
+
+  // Type assertions: ensure the F5 type surface compiles. These exist purely
+  // for the type-checker; runtime is a no-op `expect(true).toBe(true)`.
+  it('types: Project carries repositories[]; Worktree carries F5 fields; Task carries branch', () => {
+    const repo: Repository = { id: 'r1', name: 'svc', sub_path: '.' };
+    const project: Project = {
+      id: 'p1',
+      name: 'monorepo',
+      path: '/tmp/m',
+      created_at: '2026-05-10T00:00:00Z',
+      repositories: [repo],
+    };
+    const worktree: Worktree = {
+      id: 'w1',
+      repository_id: 'r1',
+      repository_name: 'svc',
+      task_id: null,
+      path: '/tmp/wt',
+      branch: 'main',
+      is_orphan: false,
+    };
+    const task: Task = {
+      id: 't1',
+      project_id: 'p1',
+      title: 'T',
+      description: '',
+      state: 'idea',
+      template: null,
+      permission_profile: null,
+      branch: 'feature/foo',
+      created_at: '2026-05-10T00:00:00Z',
+      updated_at: '2026-05-10T00:00:00Z',
+      active_session_id: null,
+    };
+    expect([project.repositories[0]?.id, worktree.is_orphan, task.branch]).toEqual([
+      repo.id,
+      false,
+      'feature/foo',
+    ]);
   });
 });
