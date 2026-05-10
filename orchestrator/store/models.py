@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -26,11 +26,32 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
+class Repository(Base):
+    __tablename__ = "repositories"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    sub_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "sub_path", name="uq_repo_project_subpath"),
+    )
+
+
 class Worktree(Base):
     __tablename__ = "worktrees"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"))
+    repository_id: Mapped[str] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False
+    )
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+    )
     path: Mapped[str] = mapped_column(String(1024), unique=True)
     branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
@@ -47,6 +68,7 @@ class Task(Base):
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="idea")
     template: Mapped[str | None] = mapped_column(String(64), nullable=True)
     permission_profile: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
@@ -64,10 +86,10 @@ class ClaudeSession(Base):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    worktree_id: Mapped[str] = mapped_column(ForeignKey("worktrees.id"))
     task_id: Mapped[str] = mapped_column(
         ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False
     )
+    cwd: Mapped[str] = mapped_column(String(1024), nullable=False)
     status: Mapped[str] = mapped_column(String(32))
     pid: Mapped[int | None] = mapped_column(nullable=True)
     jail_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

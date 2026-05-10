@@ -85,3 +85,20 @@ async def _create_project_and_worktree(
     project = (await client.post("/api/projects", json={"name": name, "path": str(repo)})).json()
     worktrees = (await client.get(f"/api/projects/{project['id']}/worktrees")).json()
     return project["id"], worktrees[0]["id"]
+
+
+def _make_multi_repo(parent: Path, sub_repos: list[str], name: str = "multi-repo") -> Path:
+    """Create umbrella dir with N sub-repos, each with its own .git.
+    Used for F5 multi-repo project tests (gcb-hub-like).
+    NB: no .git in `parent/<name>` itself — that's the multi-repo signature.
+    """
+    base = parent / name
+    base.mkdir()
+    for sub in sub_repos:
+        sub_path = base / sub
+        sub_path.mkdir()
+        _git(sub_path, "init", "-b", "main")
+        (sub_path / "f").write_text("x", encoding="utf-8")
+        _git(sub_path, "add", ".")
+        _git(sub_path, "-c", "commit.gpgsign=false", "commit", "-m", "init")
+    return base

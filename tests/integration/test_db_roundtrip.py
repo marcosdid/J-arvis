@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from orchestrator.store.database import Database
-from orchestrator.store.models import ClaudeSession, Project, Task, Worktree
+from orchestrator.store.models import ClaudeSession, Project, Repository, Task, Worktree
 
 
 @pytest.mark.integration
@@ -18,14 +18,10 @@ async def test_persist_and_query_project_worktree_session(tmp_path: Path) -> Non
             await s.commit()
             await s.refresh(project)
 
-            worktree = Worktree(
-                project_id=project.id,
-                path=str(tmp_path / "repo"),
-                branch="main",
-            )
-            s.add(worktree)
+            repo = Repository(project_id=project.id, name="myrepo", sub_path=".")
+            s.add(repo)
             await s.commit()
-            await s.refresh(worktree)
+            await s.refresh(repo)
 
             task = Task(
                 project_id=project.id,
@@ -37,8 +33,18 @@ async def test_persist_and_query_project_worktree_session(tmp_path: Path) -> Non
             await s.commit()
             await s.refresh(task)
 
+            worktree = Worktree(
+                repository_id=repo.id,
+                task_id=task.id,
+                path=str(tmp_path / "repo"),
+                branch="main",
+            )
+            s.add(worktree)
+            await s.commit()
+            await s.refresh(worktree)
+
             session_row = ClaudeSession(
-                worktree_id=worktree.id,
+                cwd=str(tmp_path / "repo"),
                 task_id=task.id,
                 status="executing",
             )

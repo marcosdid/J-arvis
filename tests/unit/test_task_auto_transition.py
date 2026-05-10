@@ -9,7 +9,7 @@ from orchestrator.core.sessions import (
 )
 from orchestrator.core.tasks import create_task, update_task
 from orchestrator.sandbox.null import NullSessionRuntime
-from orchestrator.store.models import Worktree
+from orchestrator.store.models import Repository, Worktree
 
 
 async def _seed_pwt(db_session, tmp_path: Path, branch: str | None = "main"):
@@ -18,7 +18,11 @@ async def _seed_pwt(db_session, tmp_path: Path, branch: str | None = "main"):
     repo.mkdir(exist_ok=True)
     (repo / ".git").mkdir(exist_ok=True)
     p = await create_project(db_session, "p", str(repo))
-    w = Worktree(project_id=p.id, path=str(repo), branch=branch)
+    r = Repository(project_id=p.id, name="p", sub_path=".")
+    db_session.add(r)
+    await db_session.commit()
+    await db_session.refresh(r)
+    w = Worktree(repository_id=r.id, task_id=None, path=str(repo), branch=branch)
     db_session.add(w)
     await db_session.commit()
     await db_session.refresh(w)

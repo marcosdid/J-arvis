@@ -7,7 +7,7 @@ from orchestrator.core.sessions import start_session, stop_session
 from orchestrator.core.tasks import create_task
 from orchestrator.hooks.tokens import TokenRegistry
 from orchestrator.store.database import Database
-from orchestrator.store.models import Project, Worktree
+from orchestrator.store.models import Project, Repository, Worktree
 from tests.integration.conftest import FakeSessionRuntime
 
 
@@ -27,7 +27,13 @@ async def _seed_worktree(database: Database, worktree_path: str) -> tuple[str, s
         s.add(proj)
         await s.commit()
         await s.refresh(proj)
-        wt = Worktree(project_id=proj.id, path=worktree_path, branch="main")
+        repo = Repository(project_id=proj.id, name="p", sub_path=".")
+        s.add(repo)
+        await s.commit()
+        await s.refresh(repo)
+        wt = Worktree(
+            repository_id=repo.id, task_id=None, path=worktree_path, branch="main",
+        )
         s.add(wt)
         await s.commit()
         await s.refresh(wt)
