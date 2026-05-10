@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { ProjectFilters } from './ProjectFilters';
 
 const projects = [
-  { id: 'p1', name: 'projA', path: '/a', created_at: '' },
-  { id: 'p2', name: 'projB', path: '/b', created_at: '' },
+  { id: 'p1', name: 'projA', path: '/a', created_at: '', repositories: [] },
+  { id: 'p2', name: 'projB', path: '/b', created_at: '', repositories: [] },
 ];
 
 describe('ProjectFilters', () => {

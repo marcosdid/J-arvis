@@ -7,12 +7,12 @@ import { DndContext } from '@dnd-kit/core';
 const baseTask: Task = {
   id: 't1', project_id: 'p1', title: 'Adicionar dark mode',
   description: '', state: 'idea',
-  template: null, permission_profile: null,
+  template: null, permission_profile: null, branch: null,
   created_at: '2026', updated_at: '2026', active_session_id: null,
 };
 
 const projects = new Map<string, Project>([
-  ['p1', { id: 'p1', name: 'projA', path: '/p', created_at: '2026' }],
+  ['p1', { id: 'p1', name: 'projA', path: '/p', created_at: '2026', repositories: [] }],
 ]);
 
 function wrap(node: React.ReactElement) {

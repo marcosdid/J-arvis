@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { api } from '../lib/api';
-import { translateError } from '../lib/errorMessages';
 import { queryKeys } from '../lib/query-keys';
+import { ProjectNode } from './ProjectNode';
 
 type Props = { open: boolean; onClose: () => void };
 
 export function ProjectsDrawer({ open, onClose }: Props) {
-  const qc = useQueryClient();
   const [toast, setToast] = useState<string | null>(null);
 
   const projects = useQuery({
@@ -16,36 +15,17 @@ export function ProjectsDrawer({ open, onClose }: Props) {
     enabled: open,
   });
 
-  const del = useMutation({
-    mutationFn: (id: string) => api.deleteProject(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.projects }),
-    onError: (err: unknown) => {
-      const msg = (err as Error).message ?? String(err);
-      setToast(translateError(msg));
-    },
-  });
-
   if (!open) return null;
 
   return (
     <aside role="dialog" aria-label="projects-drawer" className="drawer">
       <header>
-        <h2>Projetos</h2>
+        <h2>Projetos & Worktrees</h2>
         <button onClick={onClose} aria-label="close-drawer">✕</button>
       </header>
       <CreateProjectForm />
       {projects.data?.map((p) => (
-        <div key={p.id} className="project-row">
-          <strong>{p.name}</strong>
-          <code>{p.path}</code>
-          <button
-            aria-label={`delete-${p.name}`}
-            onClick={() => del.mutate(p.id)}
-          >
-            Excluir
-          </button>
-          <WorktreesInline projectId={p.id} />
-        </div>
+        <ProjectNode key={p.id} project={p} onError={setToast} />
       ))}
       {toast && (
         <p role="alert" className="toast" onClick={() => setToast(null)}>
@@ -95,35 +75,5 @@ function CreateProjectForm() {
         Adicionar projeto
       </button>
     </form>
-  );
-}
-
-function WorktreesInline({ projectId }: { projectId: string }) {
-  const qc = useQueryClient();
-
-  const wts = useQuery({
-    queryKey: queryKeys.worktrees(projectId),
-    queryFn: () => api.listWorktrees(projectId),
-  });
-
-  const quickSession = useMutation({
-    mutationFn: (wid: string) => api.startSession(wid),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.sessions }),
-  });
-
-  return (
-    <ul>
-      {wts.data?.map((w) => (
-        <li key={w.id}>
-          <code>{w.branch ?? '(detached)'}</code>
-          <button
-            aria-label={`quick-${w.branch ?? w.id}`}
-            onClick={() => quickSession.mutate(w.id)}
-          >
-            ▶ Quick session
-          </button>
-        </li>
-      ))}
-    </ul>
   );
 }

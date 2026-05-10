@@ -12,9 +12,8 @@ vi.mock('../lib/api', async () => {
       createProject: vi.fn(),
       deleteProject: vi.fn(),
       listWorktrees: vi.fn(),
-      createWorktree: vi.fn(),
+      listTasks: vi.fn(),
       deleteWorktree: vi.fn(),
-      startSession: vi.fn(),
     },
   };
 });
@@ -24,11 +23,19 @@ import { api } from '../lib/api';
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listProjects).mockResolvedValue([
-    { id: 'p1', name: 'projA', path: '/p', created_at: '' },
+    {
+      id: 'p1',
+      name: 'projA',
+      path: '/p',
+      created_at: '',
+      repositories: [{ id: 'r1', name: 'projA', sub_path: '.' }],
+    },
   ]);
-  vi.mocked(api.listWorktrees).mockResolvedValue([
-    { id: 'w1', project_id: 'p1', branch: 'main', path: '/p' },
-  ]);
+  vi.mocked(api.listWorktrees).mockResolvedValue([]);
+  vi.mocked(api.listTasks).mockResolvedValue([]);
+  vi.mocked(api.deleteProject).mockResolvedValue(undefined);
+  vi.mocked(api.createProject).mockResolvedValue({} as never);
+  window.localStorage.clear();
 });
 
 function wrap(ui: React.ReactElement) {
@@ -42,15 +49,10 @@ describe('ProjectsDrawer', () => {
     expect(screen.queryByText('projA')).toBeNull();
   });
 
-  it('renders projects when open', async () => {
+  it('renders the projects header and project name when open', async () => {
     wrap(<ProjectsDrawer open={true} onClose={() => {}} />);
+    expect(screen.getByText('Projetos & Worktrees')).toBeInTheDocument();
     expect(await screen.findByText('projA')).toBeInTheDocument();
-  });
-
-  it('renders worktrees inline per project', async () => {
-    wrap(<ProjectsDrawer open={true} onClose={() => {}} />);
-    await screen.findByText('projA');
-    expect(await screen.findByText('main')).toBeInTheDocument();
   });
 
   it('calls onClose when close button clicked', () => {
@@ -60,26 +62,45 @@ describe('ProjectsDrawer', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('shows pt-BR toast when delete-project returns 409', async () => {
+  it('renders create-project form fields', () => {
+    wrap(<ProjectsDrawer open={true} onClose={() => {}} />);
+    expect(screen.getByLabelText('project-name')).toBeInTheDocument();
+    expect(screen.getByLabelText('project-path')).toBeInTheDocument();
+  });
+
+  it('submits create-project form and clears inputs on success', async () => {
+    wrap(<ProjectsDrawer open={true} onClose={() => {}} />);
+    const name = screen.getByLabelText('project-name') as HTMLInputElement;
+    const path = screen.getByLabelText('project-path') as HTMLInputElement;
+    fireEvent.change(name, { target: { value: 'newP' } });
+    fireEvent.change(path, { target: { value: '/np' } });
+    fireEvent.click(screen.getByRole('button', { name: /adicionar projeto/i }));
+    await waitFor(() => {
+      expect(api.createProject).toHaveBeenCalledWith('newP', '/np');
+    });
+    await waitFor(() => expect(name.value).toBe(''));
+    expect(path.value).toBe('');
+  });
+
+  it('shows pt-BR toast bubbled from ProjectNode when delete fails', async () => {
     vi.mocked(api.deleteProject).mockRejectedValueOnce(
-      new Error('project has 2 task(s); discard them before deleting')
+      new Error('project has 2 task(s); discard them before deleting'),
     );
     wrap(<ProjectsDrawer open={true} onClose={() => {}} />);
     await screen.findByText('projA');
-    fireEvent.click(screen.getByLabelText(/delete-projA/i));
+    fireEvent.click(screen.getByLabelText('delete-projA'));
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toMatch(/Descarte as tasks/i);
     });
   });
 
-  it('quick session button calls api.startSession with worktree id', async () => {
-    vi.mocked(api.startSession).mockResolvedValueOnce({} as never);
+  it('clicking the toast dismisses it', async () => {
+    vi.mocked(api.deleteProject).mockRejectedValueOnce(new Error('boom'));
     wrap(<ProjectsDrawer open={true} onClose={() => {}} />);
-    await screen.findByText('main');
-    const btn = screen.getByLabelText(/quick-main/i);
-    fireEvent.click(btn);
-    await waitFor(() => {
-      expect(api.startSession).toHaveBeenCalledWith('w1');
-    });
+    await screen.findByText('projA');
+    fireEvent.click(screen.getByLabelText('delete-projA'));
+    const toast = await screen.findByRole('alert');
+    fireEvent.click(toast);
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   });
 });

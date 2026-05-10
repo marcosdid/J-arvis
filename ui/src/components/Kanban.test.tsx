@@ -22,17 +22,17 @@ beforeEach(() => {
   vi.mocked(api.listTasks).mockResolvedValue([
     {
       id: 't1', project_id: 'p1', title: 'A', state: 'idea',
-      description: '', template: null, permission_profile: null,
+      description: '', template: null, permission_profile: null, branch: null,
       created_at: '', updated_at: '', active_session_id: null,
     },
     {
       id: 't2', project_id: 'p1', title: 'B', state: 'in_progress',
-      description: '', template: null, permission_profile: null,
+      description: '', template: null, permission_profile: null, branch: null,
       created_at: '', updated_at: '', active_session_id: 's1',
     },
   ]);
   vi.mocked(api.listProjects).mockResolvedValue([
-    { id: 'p1', name: 'projA', path: '/p', created_at: '' },
+    { id: 'p1', name: 'projA', path: '/p', created_at: '', repositories: [] },
   ]);
   vi.mocked(api.patchTask).mockResolvedValue({} as never);
 });
@@ -91,7 +91,7 @@ describe('Kanban', () => {
     vi.mocked(api.listTasks).mockResolvedValue([
       {
         id: 't3', project_id: 'p1', title: 'C', state: 'ready',
-        description: '', template: null, permission_profile: null,
+        description: '', template: null, permission_profile: null, branch: null,
         created_at: '', updated_at: '', active_session_id: null,
       },
     ]);

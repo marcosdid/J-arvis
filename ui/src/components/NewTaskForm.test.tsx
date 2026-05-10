@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NewTaskForm } from './NewTaskForm';
 
-const projects = [{ id: 'p1', name: 'projA', path: '/p', created_at: '' }];
+const projects = [{ id: 'p1', name: 'projA', path: '/p', created_at: '', repositories: [] }];
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual('../lib/api');

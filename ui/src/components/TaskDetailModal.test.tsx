@@ -22,13 +22,21 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.getTask).mockResolvedValue({
     id: 't1', project_id: 'p1', title: 'X', description: 'D',
-    state: 'ready', template: null, permission_profile: null,
+    state: 'ready', template: null, permission_profile: null, branch: null,
     created_at: '', updated_at: '', active_session_id: null,
   });
   vi.mocked(api.patchTask).mockResolvedValue({} as never);
   vi.mocked(api.startTaskSession).mockResolvedValue({} as never);
   vi.mocked(api.listWorktrees).mockResolvedValue([
-    { id: 'w1', project_id: 'p1', branch: 'main', path: '/r' },
+    {
+      id: 'w1',
+      repository_id: 'r1',
+      repository_name: 'projA',
+      task_id: null,
+      branch: 'main',
+      path: '/r',
+      is_orphan: true,
+    },
   ]);
 });
 
@@ -52,7 +60,7 @@ describe('TaskDetailModal', () => {
   it('disables iniciar sessão when state is done', async () => {
     vi.mocked(api.getTask).mockResolvedValueOnce({
       id: 't1', project_id: 'p1', title: 'X', description: '',
-      state: 'done', template: null, permission_profile: null,
+      state: 'done', template: null, permission_profile: null, branch: null,
       created_at: '', updated_at: '', active_session_id: null,
     });
     wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
@@ -63,7 +71,7 @@ describe('TaskDetailModal', () => {
   it('disables iniciar sessão when state is discarded', async () => {
     vi.mocked(api.getTask).mockResolvedValueOnce({
       id: 't1', project_id: 'p1', title: 'X', description: '',
-      state: 'discarded', template: null, permission_profile: null,
+      state: 'discarded', template: null, permission_profile: null, branch: null,
       created_at: '', updated_at: '', active_session_id: null,
     });
     wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
@@ -93,7 +101,7 @@ describe('TaskDetailModal', () => {
     });
   });
 
-  it('iniciar sessão calls startTaskSession with selected worktree', async () => {
+  it('iniciar sessão calls startTaskSession with task id', async () => {
     wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
     await screen.findByDisplayValue('X');
     const wtSelect = screen.getByLabelText(/worktree/i) as HTMLSelectElement;
@@ -101,7 +109,7 @@ describe('TaskDetailModal', () => {
     const btn = screen.getByRole('button', { name: /iniciar sessão/i });
     fireEvent.click(btn);
     await waitFor(() => {
-      expect(api.startTaskSession).toHaveBeenCalledWith('t1', 'w1');
+      expect(api.startTaskSession).toHaveBeenCalledWith('t1');
     });
   });
 });

@@ -22,8 +22,7 @@ export function usePatchTask() {
 export function useStartTaskSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, worktreeId }: { taskId: string; worktreeId: string }) =>
-      api.startTaskSession(taskId, worktreeId),
+    mutationFn: ({ taskId }: { taskId: string }) => api.startTaskSession(taskId),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.tasks }),
   });
 }

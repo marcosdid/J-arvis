@@ -107,7 +107,7 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
         disabled={isTerminal || !selectedWorktree}
         onClick={() =>
           start.mutate(
-            { taskId, worktreeId: selectedWorktree },
+            { taskId },
             {
               onError: (err: unknown) =>
                 setError(translateError((err as Error).message ?? String(err))),
