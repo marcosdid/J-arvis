@@ -26,3 +26,4 @@ Registro de decisões arquiteturais. Estilo Michael Nygard.
 | [0009](0009-hooks-via-settings-no-jail.md) | Registro de hooks via `settings.json` injetado dentro do jail | Accepted | 2026-05-09 |
 | [0010](0010-websocket-canal-unico-envelope-tipado.md) | WebSocket único em `/ws` com envelope tipado | Accepted | 2026-05-09 |
 | [0011](0011-f3-cancelada-merged-into-f2.md) | F3 cancelada — funcionalidade absorvida em F2 | Accepted | 2026-05-09 |
+| [0014](0014-envelope-ws-task-id-opcional.md) | Envelope WS com `task_id` opcional (emenda aditiva ao ADR-0010) | Accepted | 2026-05-09 |

@@ -51,6 +51,13 @@ def _resolve_or_404(token: str, registry: TokenRegistry) -> str:
     return sid
 
 
+async def _fetch_task_id(db: AsyncSession, session_id: str) -> str:
+    row = await db.get(ClaudeSession, session_id)
+    if row is None:  # pragma: no cover
+        raise HTTPException(status_code=404)
+    return row.task_id
+
+
 @router.post("/hooks/Notification/{token}", status_code=204)
 async def hook_notification(
     token: str,
@@ -61,6 +68,8 @@ async def hook_notification(
     notifier: Annotated[NotifierSink, Depends(resolve_notifier)],
 ) -> None:
     sid = _resolve_or_404(token, registry)
+    tid = await _fetch_task_id(db, sid)
+
     try:
         new_status = parse_notification(payload)
     except InvalidHookPayloadError as exc:
@@ -69,7 +78,12 @@ async def hook_notification(
     prev, new = await update_status(db, sid, new_status)
     if prev != new:
         await broadcaster.publish(
-            WsEvent.session_status(session_id=sid, new_status=new, previous_status=prev)
+            WsEvent.session_status(
+                session_id=sid,
+                task_id=tid,
+                new_status=new,
+                previous_status=prev,
+            )
         )
     if should_notify(prev, new):
         body, icon = _notify_text(new)
@@ -85,12 +99,14 @@ async def hook_pretooluse(
     broadcaster: Annotated[WsBroadcaster, Depends(resolve_broadcaster)],
 ) -> dict[str, bool]:
     sid = _resolve_or_404(token, registry)
+    tid = await _fetch_task_id(db, sid)
+
     try:
         tool = parse_pretooluse(payload)
     except InvalidHookPayloadError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await bump_last_hook_at(db, sid)
-    await broadcaster.publish(WsEvent.session_tool_use(session_id=sid, tool=tool))
+    await broadcaster.publish(WsEvent.session_tool_use(session_id=sid, task_id=tid, tool=tool))
     return {"continue": True}
 
 
@@ -104,13 +120,20 @@ async def hook_stop(
     notifier: Annotated[NotifierSink, Depends(resolve_notifier)],
 ) -> None:
     sid = _resolve_or_404(token, registry)
+    tid = await _fetch_task_id(db, sid)
+
     new_status = parse_stop(payload)
     prev, new = await update_status(db, sid, new_status)
     if prev != new:
         await broadcaster.publish(
-            WsEvent.session_status(session_id=sid, new_status=new, previous_status=prev)
+            WsEvent.session_status(
+                session_id=sid,
+                task_id=tid,
+                new_status=new,
+                previous_status=prev,
+            )
         )
-        await broadcaster.publish(WsEvent.session_stopped(session_id=sid))
+        await broadcaster.publish(WsEvent.session_stopped(session_id=sid, task_id=tid))
     if should_notify(prev, new):
         body, icon = _notify_text(new)
         await notifier.notify(summary=await _summary(db, sid), body=body, icon=icon)

@@ -17,6 +17,7 @@ from orchestrator.core.tasks import (
     ProjectNotFoundForTaskError,
     ensure_task_for_quick_session,
 )
+from orchestrator.events.envelope import WsEvent
 from orchestrator.sandbox.runtime import SessionRuntime
 
 
@@ -49,6 +50,7 @@ async def post_session(
 ) -> SessionRead:
     registry = request.app.state.token_registry
     base_url = request.app.state.hook_base_url
+    broadcaster = request.app.state.ws_broadcaster
     try:
         task = await ensure_task_for_quick_session(
             session, worktree_id=payload.worktree_id
@@ -63,6 +65,15 @@ async def post_session(
         )
     except (WorktreeNotFoundError, ProjectNotFoundForTaskError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if broadcaster is not None:
+        await broadcaster.publish(WsEvent.task_created(
+            task_id=task.id,
+            project_id=task.project_id,
+            title=task.title,
+            state=task.state,
+        ))
+
     return SessionRead.model_validate(row)
 
 

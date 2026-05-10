@@ -18,7 +18,7 @@ class FakeWebSocket:
 @pytest.mark.asyncio
 async def test_publish_to_no_clients_is_noop() -> None:
     bc = InMemoryWsBroadcaster()
-    await bc.publish(WsEvent.session_stopped(session_id="x"))
+    await bc.publish(WsEvent.session_stopped(session_id="x", task_id="t1"))
 
 
 @pytest.mark.asyncio
@@ -27,7 +27,7 @@ async def test_publish_fans_out_to_all_subscribers() -> None:
     a, b = FakeWebSocket(), FakeWebSocket()
     bc.subscribe(a)
     bc.subscribe(b)
-    await bc.publish(WsEvent.session_stopped(session_id="x"))
+    await bc.publish(WsEvent.session_stopped(session_id="x", task_id="t1"))
     assert len(a.received) == 1
     assert len(b.received) == 1
 
@@ -39,7 +39,7 @@ async def test_failing_subscriber_is_dropped() -> None:
     good = FakeWebSocket()
     bc.subscribe(bad)
     bc.subscribe(good)
-    await bc.publish(WsEvent.session_stopped(session_id="x"))
+    await bc.publish(WsEvent.session_stopped(session_id="x", task_id="t1"))
     assert len(good.received) == 1
     assert bad not in bc.subscribers
 
@@ -50,5 +50,5 @@ async def test_unsubscribe_removes_client() -> None:
     a = FakeWebSocket()
     bc.subscribe(a)
     bc.unsubscribe(a)
-    await bc.publish(WsEvent.session_stopped(session_id="x"))
+    await bc.publish(WsEvent.session_stopped(session_id="x", task_id="t1"))
     assert a.received == []

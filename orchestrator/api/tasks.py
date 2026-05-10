@@ -25,6 +25,7 @@ from orchestrator.core.tasks import (
     list_tasks,
     update_task,
 )
+from orchestrator.events.envelope import WsEvent
 from orchestrator.sandbox.runtime import SessionRuntime
 from orchestrator.store.models import ClaudeSession
 
@@ -93,6 +94,7 @@ async def _build_task_read(db: AsyncSession, task_id: str) -> TaskRead:
 @router.post("", status_code=201, response_model=TaskRead)
 async def post_task(
     payload: TaskCreatePayload,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> TaskRead:
     try:
@@ -106,6 +108,16 @@ async def post_task(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ProjectNotFoundForTaskError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    broadcaster = request.app.state.ws_broadcaster
+    if broadcaster is not None:
+        await broadcaster.publish(WsEvent.task_created(
+            task_id=task.id,
+            project_id=task.project_id,
+            title=task.title,
+            state=task.state,
+        ))
+
     return TaskRead.model_validate(task).model_copy(update={"active_session_id": None})
 
 
@@ -150,10 +162,11 @@ async def get_task_route(
 async def patch_task(
     task_id: str,
     payload: TaskPatchPayload,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> TaskRead:
     try:
-        await update_task(
+        row, previous_state = await update_task(
             db,
             task_id,
             title=payload.title,
@@ -166,6 +179,17 @@ async def patch_task(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except InvalidTransitionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    broadcaster = request.app.state.ws_broadcaster
+    if broadcaster is not None and previous_state is not None:
+        await broadcaster.publish(WsEvent.task_updated(
+            task_id=row.id,
+            project_id=row.project_id,
+            title=row.title,
+            new_state=row.state,
+            previous_state=previous_state,
+        ))
+
     return await _build_task_read(db, task_id)
 
 
@@ -179,6 +203,14 @@ async def post_task_session(
 ) -> SessionRead:
     registry = request.app.state.token_registry
     base_url = request.app.state.hook_base_url
+    broadcaster = request.app.state.ws_broadcaster
+
+    try:
+        task = await get_task(db, task_id)
+    except TaskNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    prev_state = task.state
+
     async with _task_start_locks[task_id]:
         try:
             row = await start_session(
@@ -197,4 +229,15 @@ async def post_task_session(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except WorktreeNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    await db.refresh(task)
+    if broadcaster is not None and task.state != prev_state:
+        await broadcaster.publish(WsEvent.task_updated(
+            task_id=task_id,
+            project_id=task.project_id,
+            title=task.title,
+            new_state=task.state,
+            previous_state=prev_state,
+        ))
+
     return SessionRead.model_validate(row)

@@ -48,5 +48,8 @@ async def test_lifecycle_with_hooks(db: Database, tmp_path: Path) -> None:
         await client.post(f"/api/sessions/{sid}/stop")
 
     types = [e["type"] for e in received]
-    assert types == ["session.status", "session.status", "session.stopped"]
+    # POST /api/sessions now emits task.created for the implicit quick-session task.
+    assert "task.created" in types
+    session_types = [t for t in types if t.startswith("session.")]
+    assert session_types == ["session.status", "session.status", "session.stopped"]
     assert registry.resolve(token) is None
