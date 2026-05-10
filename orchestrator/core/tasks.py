@@ -1,8 +1,9 @@
 """Task domain: CRUD + state machine + lifecycle policies."""
+import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from orchestrator.store.models import Project, Task, Worktree
@@ -44,6 +45,30 @@ class InvalidTaskTitleError(Exception):
 
 class ProjectNotFoundForTaskError(Exception):
     pass
+
+
+class TaskHasActiveSessionError(Exception):
+    """Raised when transitioning task to terminal state with active session."""
+
+
+class BranchImmutableAfterFirstSessionError(Exception):
+    """Raised when changing task.branch after worktrees have been created."""
+
+
+class InvalidBranchOverrideError(Exception):
+    """Raised when task.branch override fails the regex/length validation."""
+
+
+_BRANCH_OVERRIDE_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]*$")
+_BRANCH_OVERRIDE_MAX = 200
+
+
+async def _count_worktrees_for_task(db: AsyncSession, task_id: str) -> int:
+    return (await db.execute(
+        select(func.count())
+        .select_from(Worktree)
+        .where(Worktree.task_id == task_id)
+    )).scalar_one()
 
 
 async def create_task(
@@ -91,6 +116,7 @@ async def update_task(
     title: str | None = None,
     description: str | None = None,
     state: str | None = None,
+    branch: str | None = None,
 ) -> tuple[Task, str | None]:
     row = await get_task(db, task_id)
     await db.refresh(row)
@@ -102,11 +128,36 @@ async def update_task(
         row.title = title
     if description is not None:
         row.description = description
+    if branch is not None:
+        if (
+            len(branch) > _BRANCH_OVERRIDE_MAX
+            or not _BRANCH_OVERRIDE_RE.match(branch)
+        ):
+            raise InvalidBranchOverrideError(
+                f"branch must match ^[a-z0-9][a-z0-9._/-]*$ "
+                f"and be <= {_BRANCH_OVERRIDE_MAX} chars"
+            )
+        wts_count = await _count_worktrees_for_task(db, task_id)
+        if wts_count > 0:
+            raise BranchImmutableAfterFirstSessionError(
+                "branch cannot be changed after worktrees were created; "
+                "discard task and recreate"
+            )
+        row.branch = branch
     if state is not None:
         if not is_valid_transition(row.state, state):
             raise InvalidTransitionError(
                 f"invalid transition: {row.state} → {state}"
             )
+        if state in ("done", "discarded") and state != row.state:
+            # Local import to avoid circular: core.sessions imports from core.tasks
+            from orchestrator.core.sessions import _count_active_sessions
+            active = await _count_active_sessions(db, task_id)
+            if active > 0:
+                raise TaskHasActiveSessionError(
+                    "task has active session; "
+                    "stop it before completing/discarding"
+                )
         if state != row.state:
             previous_state = row.state
             row.state = state
