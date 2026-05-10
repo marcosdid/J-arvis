@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orchestrator.core.git import GitWorktreeOps
 from orchestrator.events.broadcaster import WsBroadcaster
 from orchestrator.hooks.tokens import TokenRegistry
 from orchestrator.notifications.sink import NotifierSink
@@ -51,3 +52,10 @@ def resolve_notifier(request: Request) -> NotifierSink:
     if n is None:  # pragma: no cover
         raise RuntimeError("router mounted without notifier")
     return n
+
+
+def resolve_git_ops(request: Request) -> GitWorktreeOps:
+    git: GitWorktreeOps | None = request.app.state.git_ops
+    if git is None:  # pragma: no cover
+        raise RuntimeError("git_ops not configured in app.state")
+    return git

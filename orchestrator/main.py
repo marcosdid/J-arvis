@@ -12,6 +12,7 @@ from orchestrator.api.tasks import router as tasks_router
 from orchestrator.api.worktrees import router as worktrees_router
 from orchestrator.api.ws import router as ws_router
 from orchestrator.config import RuntimeMode, Settings
+from orchestrator.core.git import SubprocessGitWorktreeOps
 from orchestrator.core.health import health_status
 from orchestrator.events.broadcaster import InMemoryWsBroadcaster
 from orchestrator.hooks.router import router as hooks_router
@@ -46,6 +47,7 @@ def create_app(
     app.state.ws_broadcaster = getattr(app.state, "ws_broadcaster", None)
     app.state.notifier = getattr(app.state, "notifier", None)
     app.state.hook_base_url = getattr(app.state, "hook_base_url", None)
+    app.state.git_ops = getattr(app.state, "git_ops", None)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -92,12 +94,14 @@ def _build_production_app() -> FastAPI:  # pragma: no cover
     notifier: NotifierSink = (
         NotifySendNotifier() if settings.notify == "on" else NoopNotifier()
     )
+    git_ops = SubprocessGitWorktreeOps()
 
     app = create_app(database=database, runtime=runtime, ui_dist=ui_dist)
     app.state.token_registry = registry
     app.state.ws_broadcaster = broadcaster
     app.state.notifier = notifier
     app.state.hook_base_url = settings.effective_hook_base_url
+    app.state.git_ops = git_ops
     return app
 
 
