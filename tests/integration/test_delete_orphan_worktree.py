@@ -100,3 +100,37 @@ async def test_delete_orphan_git_error_returns_500(
         orphan = next(w for w in wts if w["path"] == str(feature))
         r = await client.delete(f"/api/worktrees/{orphan['id']}")
     assert r.status_code == 500
+
+
+async def test_delete_orphan_worktree_broadcasts_via_ws(
+    db: Database, runtime: FakeSessionRuntime, tmp_path: Path,
+) -> None:
+    """DELETE /api/worktrees/{id} of orphan publishes worktree.removed
+    on the WS broadcaster."""
+    from orchestrator.events.envelope import WsEvent
+
+    repo = _make_repo(tmp_path, "mono")
+    target = tmp_path / "mono--external"
+    _git(repo, "worktree", "add", str(target), "-b", "external")
+
+    received: list[WsEvent] = []
+
+    class CollectingBroadcaster:
+        async def publish(self, event: WsEvent) -> None:
+            received.append(event)
+
+    app = create_app(database=db, runtime=runtime, ui_dist=None)
+    app.state.ws_broadcaster = CollectingBroadcaster()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        proj = (await c.post("/api/projects", json={"name": "mono", "path": str(repo)})).json()
+        wts = (await c.get(f"/api/projects/{proj['id']}/worktrees")).json()
+        orphan = next(w for w in wts if w["path"] == str(target))
+
+        r = await c.delete(f"/api/worktrees/{orphan['id']}")
+        assert r.status_code == 204
+
+    removed_evts = [e for e in received if e.type == "worktree.removed"]
+    assert len(removed_evts) == 1
+    assert removed_evts[0].payload["worktree_id"] == orphan["id"]
+    assert removed_evts[0].task_id is None

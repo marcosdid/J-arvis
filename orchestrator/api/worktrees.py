@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,11 +61,13 @@ async def get_worktrees(
 @worktree_router.delete("/{worktree_id}", status_code=204)
 async def delete_worktree_route(
     worktree_id: str,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
     git: Annotated[GitWorktreeOps, Depends(resolve_git_ops)],
 ) -> None:
+    broadcaster = request.app.state.ws_broadcaster
     try:
-        await delete_worktree(session, git, worktree_id)
+        await delete_worktree(session, git, worktree_id, broadcaster=broadcaster)
     except WorktreeNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except WorktreeNotOrphanError as exc:

@@ -93,3 +93,43 @@ async def test_delete_worktree_unknown_id_raises_not_found(tmp_path: Path) -> No
     async with db.session() as s:
         with pytest.raises(WorktreeNotFoundError):
             await delete_worktree(s, git, "does-not-exist")
+
+
+async def test_delete_worktree_broadcasts_worktree_removed(tmp_path: Path) -> None:
+    """When broadcaster is provided, delete_worktree publishes
+    worktree.removed AFTER commit (with task_id=None for orphans)."""
+    db = Database(f"sqlite+aiosqlite:///{tmp_path}/b.db")
+    await db.bootstrap()
+    git = FakeGitOps()
+
+    received: list = []
+
+    class CollectingBroadcaster:
+        async def publish(self, event):
+            received.append(event)
+
+    async with db.session() as s:
+        p = Project(name="p", path=str(tmp_path))
+        s.add(p)
+        await s.flush()
+        r = Repository(project_id=p.id, name="p", sub_path=".")
+        s.add(r)
+        await s.flush()
+        wt = Worktree(
+            repository_id=r.id, task_id=None,
+            path=str(tmp_path / "orphan"), branch="external",
+        )
+        s.add(wt)
+        await s.commit()
+        wt_id = wt.id
+        project_id = p.id
+
+    async with db.session() as s:
+        await delete_worktree(s, git, wt_id, broadcaster=CollectingBroadcaster())
+
+    assert len(received) == 1
+    evt = received[0]
+    assert evt.type == "worktree.removed"
+    assert evt.payload["worktree_id"] == wt_id
+    assert evt.payload["project_id"] == project_id
+    assert evt.task_id is None

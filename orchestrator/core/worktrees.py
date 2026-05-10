@@ -181,12 +181,20 @@ async def cleanup_task_worktrees(
 
 
 async def delete_worktree(
-    session: AsyncSession, git: GitWorktreeOps, worktree_id: str,
+    session: AsyncSession,
+    git: GitWorktreeOps,
+    worktree_id: str,
+    *,
+    broadcaster: WsBroadcaster | None = None,
 ) -> None:
     """Remove a single ORPHAN worktree (used by DELETE /api/worktrees/{id}).
 
     Refuses with WorktreeNotOrphanError if the worktree still belongs to
     a task — those should go through cleanup_task_worktrees instead.
+
+    Broadcasts `worktree.removed` after commit (deferred, mesma atomicidade
+    de cleanup_task_worktrees). `task_id` field of the broadcast is None
+    (orphans by definition have no task).
     """
     wt = await session.get(Worktree, worktree_id)
     if wt is None:
@@ -199,6 +207,15 @@ async def delete_worktree(
     repo = await session.get(Repository, wt.repository_id)
     project = await session.get(Project, repo.project_id)
     repo_full = Path(project.path) / repo.sub_path
+
+    wt_id = wt.id
+    project_id = repo.project_id
+
     await git.remove(repo_full, Path(wt.path), force=True)
     await session.delete(wt)
     await session.commit()
+
+    if broadcaster is not None:
+        await broadcaster.publish(WsEvent.worktree_removed(
+            worktree_id=wt_id, project_id=project_id, task_id=None,
+        ))
