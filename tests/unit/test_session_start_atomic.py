@@ -15,7 +15,12 @@ import pytest
 from sqlalchemy import select
 
 from orchestrator.core.git import GitWorktreeError
-from orchestrator.core.sessions import start_session
+from orchestrator.core.sessions import (
+    CwdAlreadyExistsError,
+    _derive_cwd,
+    start_session,
+)
+from orchestrator.core.slug import slugify_for_branch
 from orchestrator.events.envelope import WsEvent
 from orchestrator.sandbox.runtime import JailHandle
 from orchestrator.store.database import Database
@@ -64,6 +69,16 @@ class CollectingBroadcaster:
 class FakeRuntime:
     async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
         return JailHandle(id="fake", pid=42, started_at=datetime.now(UTC))
+
+    async def kill(self, handle, *, worktree=None) -> None:
+        pass
+
+
+class FailingRuntime:
+    """Spawn always fails - used to test spawn-failure rollback."""
+
+    async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
+        raise RuntimeError("simulated spawn failure")
 
     async def kill(self, handle, *, worktree=None) -> None:
         pass
@@ -147,3 +162,53 @@ async def test_atomic_spawn_rollback_on_second_add_fail(tmp_path: Path) -> None:
         assert worktree_events == [], (
             f"expected no worktree.created broadcasts on rollback; got {worktree_events}"
         )
+
+
+async def test_spawn_failure_rolls_back_committed_worktrees(tmp_path: Path) -> None:
+    """When runtime.spawn fails AFTER worktrees are committed to DB,
+    rollback must remove them from BOTH filesystem AND database, leaving
+    no zombies (DB pointing at non-existent paths)."""
+    db = Database(f"sqlite+aiosqlite:///{tmp_path}/sf.db")
+    await db.bootstrap()
+    git = FakeGitOps()
+    bc = CollectingBroadcaster()
+
+    async with db.session() as s:
+        _, _, task = await _seed_multi_repo_project(s, tmp_path, ["backend", "frontend"])
+        task_id = task.id
+
+    async with db.session() as s:
+        with pytest.raises(RuntimeError, match="simulated spawn failure"):
+            await start_session(s, FailingRuntime(), git,
+                                task_id=task_id, broadcaster=bc)
+
+    # Worktrees were created in FS then removed
+    assert len(git.added) == 2
+    assert len(git.removed) == 2
+    # No Worktree rows in DB
+    async with db.session() as s:
+        wts = (await s.execute(select(Worktree).where(Worktree.task_id == task_id))).scalars().all()
+        assert wts == []
+    # No broadcasts emitted
+    assert [e for e in bc.received if e.type == "worktree.created"] == []
+
+
+async def test_cwd_already_exists_raises_before_any_side_effect(tmp_path: Path) -> None:
+    """If the derived cwd path already exists (from a manual mkdir or stale
+    directory), refuse before any git ops or DB writes."""
+    db = Database(f"sqlite+aiosqlite:///{tmp_path}/cwd.db")
+    await db.bootstrap()
+    git = FakeGitOps()
+
+    async with db.session() as s:
+        project, _, task = await _seed_multi_repo_project(s, tmp_path, ["backend", "frontend"])
+        # Pre-create the cwd path that start_session would derive
+        slug = task.branch or slugify_for_branch(task.title)
+        cwd = _derive_cwd(project.path, slug)
+        cwd.mkdir(parents=True, exist_ok=False)
+
+        with pytest.raises(CwdAlreadyExistsError):
+            await start_session(s, FakeRuntime(), git, task_id=task.id)
+
+        # Nothing happened
+        assert len(git.added) == 0

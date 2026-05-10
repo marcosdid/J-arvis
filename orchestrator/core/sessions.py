@@ -137,6 +137,27 @@ async def _rollback_worktrees(
             _log.warning(f"rollback failed for {wt.path}: {exc}")
 
 
+async def _rollback_after_spawn_failure(
+    session: AsyncSession,
+    git: GitWorktreeOps,
+    project: Project,
+    new_worktree_pairs: list[tuple[Worktree, Repository]],
+    cwd: Path,
+) -> None:
+    """Rollback FS + DB after a successful worktree commit but a failed spawn.
+
+    Undoes git worktrees on disk, deletes Worktree rows, removes the
+    multi-repo cwd parent dir if empty, then commits.
+    """
+    await _rollback_worktrees(git, project, new_worktree_pairs)
+    for wt, _repo in new_worktree_pairs:
+        await session.delete(wt)
+    if len(new_worktree_pairs) > 1 and cwd.exists():
+        with contextlib.suppress(OSError):
+            cwd.rmdir()
+    await session.commit()
+
+
 async def start_session(
     session: AsyncSession,
     runtime: SessionRuntime,
@@ -184,7 +205,9 @@ async def start_session(
         handle = await runtime.spawn(cwd, token=token, base_url=base_url)
     except Exception:
         if new_worktree_pairs:
-            await _rollback_worktrees(git, project, new_worktree_pairs)
+            await _rollback_after_spawn_failure(
+                session, git, project, new_worktree_pairs, cwd
+            )
         if prev_state != task.state:
             task.state = prev_state
             await session.commit()

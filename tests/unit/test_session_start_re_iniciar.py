@@ -32,3 +32,26 @@ async def test_re_iniciar_reuses_cwd_no_git_add(tmp_path: Path) -> None:
         second = await start_session(s, runtime, git, task_id=task.id)
         assert len(git.added) == 2  # unchanged
         assert Path(second.cwd) == first_cwd
+
+
+async def test_re_iniciar_monorepo_reuses_single_worktree_path(tmp_path: Path) -> None:
+    """Monorepo case: 1 worktree -> cwd is the worktree path itself
+    (no parent wrapping). Covers _derive_cwd_from_existing(len==1) branch.
+    """
+    db = Database(f"sqlite+aiosqlite:///{tmp_path}/m.db")
+    await db.bootstrap()
+    git = FakeGitOps()
+    runtime = FakeRuntime()
+
+    async with db.session() as s:
+        _, _, task = await _seed_multi_repo_project(s, tmp_path, ["mono"])
+        # Only 1 sub-repo -> monorepo behaviour
+        first = await start_session(s, runtime, git, task_id=task.id)
+        first_cwd = Path(first.cwd)
+        await stop_session(s, runtime, first.id)
+
+        second = await start_session(s, runtime, git, task_id=task.id)
+        # cwd is the same - and equal to the (only) worktree's path
+        assert Path(second.cwd) == first_cwd
+        # No new git.add (re-iniciar reuses existing)
+        assert len(git.added) == 1
