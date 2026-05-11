@@ -2,6 +2,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Task, Project } from '../lib/api';
 import { projectColor } from '../lib/projectColor';
+import { useCatalog } from '../hooks/useCatalog';
 import { RunStatus } from './RunStatus';
 
 type Props = {
@@ -24,6 +25,13 @@ export function TaskCard({ task, projects, onClick }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: task.id });
   const project = projects.get(task.project_id);
+  const catalogQ = useCatalog();
+  const templateDescription = catalogQ.data?.templates.find(
+    (t) => t.name === task.template,
+  )?.description;
+  const profileDescription = catalogQ.data?.permission_profiles.find(
+    (p) => p.name === task.permission_profile,
+  )?.description;
   const subTag =
     task.state === 'idea' || task.state === 'ready' ? task.state : null;
 
@@ -52,6 +60,7 @@ export function TaskCard({ task, projects, onClick }: Props) {
           data-template-name={task.template}
           data-testid="template-badge"
           className="template-badge"
+          title={templateDescription ?? task.template}
         >
           {task.template}
         </span>
@@ -62,7 +71,7 @@ export function TaskCard({ task, projects, onClick }: Props) {
           data-profile-color={profileColor(task.permission_profile)}
           data-testid="profile-badge"
           className={`profile-badge profile-${profileColor(task.permission_profile)}`}
-          title={`Perfil: ${task.permission_profile}`}
+          title={profileDescription ?? `Perfil: ${task.permission_profile}`}
         >
           {task.permission_profile}
         </span>

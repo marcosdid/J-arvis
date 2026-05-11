@@ -1,15 +1,34 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TaskCard } from './TaskCard';
-import type { Task, Project } from '../lib/api';
 import { DndContext } from '@dnd-kit/core';
 
 // In_progress/review states embed <RunStatus /> which queries the run.
-// Stub api so the hook resolves cleanly to "no active run".
-vi.mock('../lib/api', () => ({
-  api: { getActiveRun: vi.fn().mockRejectedValue(new Error('HTTP 404')) },
-}));
+// TaskCard also calls useCatalog for badge tooltips. Stub both endpoints.
+vi.mock('../lib/api', async () => {
+  const actual = await vi.importActual('../lib/api');
+  return {
+    ...actual,
+    api: {
+      getActiveRun: vi.fn().mockRejectedValue(new Error('HTTP 404')),
+      getCatalog: vi.fn(),
+    },
+  };
+});
+
+import { api, type Task, type Project, type Catalog } from '../lib/api';
+
+const emptyCatalog: Catalog = {
+  version: '1',
+  fallback_permission_profile: 'yolo',
+  permission_profiles: [],
+  templates: [],
+};
+
+beforeEach(() => {
+  vi.mocked(api.getCatalog).mockResolvedValue(emptyCatalog);
+});
 
 const baseTask: Task = {
   id: 't1', project_id: 'p1', title: 'Adicionar dark mode',
@@ -82,5 +101,53 @@ describe('TaskCard', () => {
     wrap(<TaskCard task={t} projects={projects} />);
     const badge = screen.getByText('paranoid');
     expect(badge.getAttribute('data-profile-color')).toBe('gray');
+  });
+
+  it('shows catalog description as template/profile badge tooltip', async () => {
+    vi.mocked(api.getCatalog).mockResolvedValue({
+      version: '1',
+      fallback_permission_profile: 'yolo',
+      permission_profiles: [
+        { name: 'yolo', description: 'Skip todos os prompts', claude_args: [] },
+      ],
+      templates: [
+        {
+          name: 'bugfix',
+          description: 'Correção de defeito',
+          default_permission_profile: 'yolo',
+          branch_prefix: 'fix/',
+        },
+      ],
+    });
+    const t: Task = { ...baseTask, template: 'bugfix', permission_profile: 'yolo' };
+    wrap(<TaskCard task={t} projects={projects} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('template-badge')).toHaveAttribute(
+        'title',
+        'Correção de defeito',
+      );
+    });
+    expect(screen.getByTestId('profile-badge')).toHaveAttribute(
+      'title',
+      'Skip todos os prompts',
+    );
+  });
+
+  it('falls back to name when catalog lookup misses', async () => {
+    vi.mocked(api.getCatalog).mockResolvedValue({
+      version: '1',
+      fallback_permission_profile: 'yolo',
+      permission_profiles: [],
+      templates: [],
+    });
+    const t: Task = { ...baseTask, template: 'custom', permission_profile: 'paranoid' };
+    wrap(<TaskCard task={t} projects={projects} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('template-badge')).toHaveAttribute('title', 'custom');
+    });
+    expect(screen.getByTestId('profile-badge')).toHaveAttribute(
+      'title',
+      'Perfil: paranoid',
+    );
   });
 });
