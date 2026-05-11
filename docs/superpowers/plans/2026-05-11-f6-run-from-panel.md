@@ -223,8 +223,8 @@ Cada falha emite WS `run.failed` com `service?` apontando o culpado.
 
 ### PFC-12 — Naming: evitar shadow do builtin `exec`
 
-DockerOps Protocol expõe `container_exec`, **não** `exec` (que shadow do
-builtin). Mesma razão pra `run` (shadow do builtin) — usar `container_run`.
+DockerOps Protocol expõe `run_in_container`, **não** `exec` (que shadow do
+builtin). Mesma razão pra `run` (shadow do builtin) — usar `container_start`.
 
 ## Disciplina
 
@@ -455,14 +455,14 @@ class DockerOps(Protocol):
     async def build(self, *, context: Path, dockerfile: str, tag: str) -> None: ...
     async def network_create(self, name: str) -> None: ...
     async def network_rm(self, name: str) -> None: ...
-    async def container_run(self, spec: ContainerSpec) -> str: ...  # container_id
-    async def container_exec(self, cid: str, cmd: list[str]) -> tuple[int, str, str]: ...
+    async def container_start(self, spec: ContainerSpec) -> str: ...  # container_id
+    async def run_in_container(self, cid: str, cmd: list[str]) -> tuple[int, str, str]: ...
     async def stream_logs(self, cid: str) -> AsyncIterator[tuple[str, str]]: ...
     async def stop(self, cid: str, *, force: bool = False) -> None: ...
     async def rm(self, cid: str) -> None: ...
 ```
 
-(Nomes `container_run`/`container_exec` evitam shadow dos builtins —
+(Nomes `container_start`/`run_in_container` evitam shadow dos builtins —
 PFC-12.)
 
 - [ ] **Step 2: SubprocessDockerOps**
@@ -488,9 +488,9 @@ class FakeDockerOps:
 Monkeypatch `asyncio.create_subprocess_exec` pra evitar docker real:
 - build success → None
 - build failure (exit≠0) → DockerError com stderr
-- container_run com port_map → argv tem `-p host:container`
-- container_run com volumes → argv tem `-v host:container`
-- container_run com env → argv tem `-e KEY=VAL`
+- container_start com port_map → argv tem `-p host:container`
+- container_start com volumes → argv tem `-v host:container`
+- container_start com env → argv tem `-e KEY=VAL`
 - stream_logs yields linhas até subprocess terminar
 
 - [ ] **Step 5: Commit** `feat(F6.d): docker_ops protocol + subprocess impl`
@@ -544,9 +544,9 @@ async def get_active_run(db, task_id: str) -> RunInstance | None: ...
 - `_topo_sort(manifest)` — Kahn's algo, raises se cycle
 - `_allocate_ports(services, allocator)` — chama `allocator.allocate()` por svc com `port:`
 - `_build_image(docker, service, cwd)` — `docker.build` com tag
-- `_run_container(docker, service_name, service_spec, host_ports, run_id, cwd)` — `docker.container_run`
+- `_run_container(docker, service_name, service_spec, host_ports, run_id, cwd)` — `docker.container_start`
 - `_wait_healthy(docker, cid, healthcheck)` — loop com retries
-- `_run_seed(docker, cid, seed)` — `docker.container_exec`
+- `_run_seed(docker, cid, seed)` — `docker.run_in_container`
 - `_rollback(docker, port_allocator, run, partial_state)` — limpa o criado
 
 - [ ] **Step 3: Tests unit com FakeDockerOps**
