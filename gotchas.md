@@ -297,3 +297,41 @@ funciona do host nativo** — não da jaula corrente. O daemon
 J-arvis em produção roda no host como user `jarvis`, então spawn de
 jaulas filhas é OK lá; só o agente-de-desenvolvimento (esta sessão)
 é que tem limitação.
+
+## 16. `ai-jail` v0.10+ não tem subcomando `run`; comando vem do `.ai-jail`
+
+**Regra:** invocar `ai-jail run -- claude` em v0.10+ falha com
+`✗ Failed to exec run: No such file or directory`. O `run` é
+interpretado como o comando a executar dentro da jaula (não como
+subcomando do `ai-jail`). A CLI correta é:
+
+```bash
+ai-jail               # lê `.ai-jail` do cwd; usa `command` de lá
+ai-jail --            # idem (separador antes de args opcionais)
+ai-jail claude        # usa preset embutido (sem ler `.ai-jail`)
+ai-jail status        # imprime config sem executar
+```
+
+**Sintoma:** sessão spawnada via terminal mostra:
+```
+▸ Jail Active: <cwd>
+▸ Landlock: fully enforced
+✗ Failed to exec run: No such file or directory (os error 2)
+```
+e a janela fecha. Pré-0.10 tinha um subcomando `run` explícito;
+v0.10 removeu silenciosamente.
+
+**Como aplicar:** `orchestrator/sandbox/aijail.py:AiJailRuntime.spawn`
+foi corrigido pra usar `inner = ["ai-jail"]` e **escrever
+`<cwd>/.ai-jail`** dinâmico no spawn via `write_aijail_config`:
+
+- `command = ["claude", "--dangerously-skip-permissions"]`
+- `rw_maps` populado por `_discover_git_dirs(cwd)` — discovery resolve
+  `.git` pointer files (`gitdir: <project>/.git/worktrees/<X>`) pros
+  paths dos `.git` originais; sem isso, `git status` dentro da jaula
+  retorna `fatal: not a git repository` (o pointer aponta pra fora do
+  cwd, e bwrap não monta o externo por default). Aplica tanto a
+  worktrees mono quanto multi-repo F5.
+
+**Descoberto:** F5.0 spike no host (esta gotcha + #15 explicam por
+que o spike só roda de fora da jaula).

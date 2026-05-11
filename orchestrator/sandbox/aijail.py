@@ -23,6 +23,61 @@ from orchestrator.sandbox.settings_writer import (
     write_settings_into_jail,
 )
 
+
+def _discover_git_dirs(cwd: Path) -> list[Path]:
+    """Resolve `.git` pointers in `cwd` (mono) or its immediate child dirs
+    (multi-repo) to their original `.git` directories.
+
+    Secondary git worktrees use a `.git` *file* whose content is
+    `gitdir: <project>/.git/worktrees/<name>`. That target lives outside
+    the new worktree dir, so it must be `rw_map`-mounted inside the jail
+    or `git status` fails with `fatal: not a git repository`.
+    """
+    candidates: list[Path] = [cwd / ".git"]
+    if cwd.is_dir():
+        for child in sorted(cwd.iterdir()):
+            if child.is_dir():
+                candidates.append(child / ".git")
+    resolved: list[Path] = []
+    for gitfile in candidates:
+        if not gitfile.exists():
+            continue
+        if gitfile.is_dir():
+            resolved.append(gitfile)
+            continue
+        try:
+            text = gitfile.read_text().strip()
+        except OSError:
+            continue
+        if not text.startswith("gitdir:"):
+            continue
+        target = Path(text.split(":", 1)[1].strip())
+        # Expected layout: <repo_root>/.git/worktrees/<name>.
+        if target.parent.name == "worktrees" and target.parent.parent.name == ".git":
+            resolved.append(target.parent.parent)
+    return resolved
+
+
+def write_aijail_config(cwd: Path) -> None:
+    """Write `<cwd>/.ai-jail` so `ai-jail` (no args) reads it on spawn.
+
+    `command` runs `claude --dangerously-skip-permissions`. `rw_maps` is
+    populated from `_discover_git_dirs(cwd)` so worktree `.git` pointers
+    resolve inside the sandbox. Overwrites any prior `.ai-jail`.
+    """
+    git_dirs = _discover_git_dirs(cwd)
+    rw_lines = ",\n".join(f'    "{p}"' for p in git_dirs)
+    rw_block = f"[\n{rw_lines},\n]" if git_dirs else "[]"
+    (cwd / ".ai-jail").write_text(
+        'command = ["claude", "--dangerously-skip-permissions"]\n'
+        f"rw_maps = {rw_block}\n"
+        "ro_maps = []\n"
+        "hide_dotdirs = []\n"
+        "mask = []\n"
+        "allow_tcp_ports = []\n"
+    )
+
+
 # Order matters: first found in PATH wins when JARVIS_TERMINAL is unset.
 _TERMINAL_PRIORITY: tuple[str, ...] = (
     "gnome-terminal",
@@ -109,8 +164,14 @@ class AiJailRuntime:
         if token is not None and base_url is not None:
             write_settings_into_jail(worktree, token=token, base_url=base_url)
             ensure_gitignore_entry(worktree)
+        write_aijail_config(worktree)
         terminal = self._terminal_resolver()
-        inner = ["ai-jail", "run", "--", "claude"]
+        # `ai-jail` (no positional arg) reads `command` from
+        # `<cwd>/.ai-jail` (written above). The earlier
+        # ["ai-jail", "run", "--", "claude"] worked on a pre-0.10 CLI
+        # that had a `run` subcommand; v0.10+ treats `run` as the
+        # command to exec and fails with "Failed to exec run".
+        inner = ["ai-jail"]
         cmd = build_terminal_command(terminal, inner)
         # Popen returns immediately; no need to offload to a thread.
         pid = self._process_ops.spawn(cmd, str(worktree))

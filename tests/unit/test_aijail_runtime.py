@@ -6,8 +6,10 @@ import pytest
 from orchestrator.sandbox.aijail import (
     AiJailRuntime,
     NoTerminalFoundError,
+    _discover_git_dirs,
     build_terminal_command,
     detect_terminal,
+    write_aijail_config,
 )
 from orchestrator.sandbox.runtime import JailHandle
 from orchestrator.sandbox.settings_writer import write_settings_into_jail
@@ -110,24 +112,29 @@ def test_detect_terminal_rejects_unsupported_env_override() -> None:
 
 
 @pytest.mark.unit
-async def test_aijail_runtime_spawn_invokes_terminal_with_aijail_and_claude() -> None:
+async def test_aijail_runtime_spawn_invokes_terminal_with_aijail_no_run_subcommand(
+    tmp_path: Path,
+) -> None:
+    """v0.10+ ai-jail CLI: no `run` subcommand; argv is just `["ai-jail"]`
+    and command is read from `<cwd>/.ai-jail`. See gotcha #16."""
     ops = FakeProcessOps(pid=42)
     runtime = AiJailRuntime(
         terminal_resolver=lambda: "kitty",
         process_ops=ops,
     )
 
-    handle = await runtime.spawn(Path("/tmp/repo"))
+    handle = await runtime.spawn(tmp_path)
 
     assert isinstance(handle, JailHandle)
     assert handle.pid == 42
     assert handle.started_at <= datetime.now(UTC)
     assert len(ops.spawn_calls) == 1
     cmd, cwd = ops.spawn_calls[0]
-    assert "kitty" in cmd
-    assert "ai-jail" in cmd
-    assert "claude" in cmd
-    assert cwd == "/tmp/repo"
+    assert cmd == ["kitty", "ai-jail"]
+    assert cwd == str(tmp_path)
+    # .ai-jail is written so ai-jail (no args) finds the command on read
+    config = (tmp_path / ".ai-jail").read_text()
+    assert 'command = ["claude", "--dangerously-skip-permissions"]' in config
 
 
 @pytest.mark.unit
@@ -144,15 +151,21 @@ async def test_aijail_runtime_kill_sends_signal() -> None:
 
 
 @pytest.mark.unit
-async def test_aijail_runtime_handle_id_is_uuid_not_pid_based() -> None:
+async def test_aijail_runtime_handle_id_is_uuid_not_pid_based(
+    tmp_path: Path,
+) -> None:
     ops = FakeProcessOps(pid=42)
     runtime = AiJailRuntime(
         terminal_resolver=lambda: "kitty",
         process_ops=ops,
     )
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
 
-    first = await runtime.spawn(Path("/tmp/a"))
-    second = await runtime.spawn(Path("/tmp/b"))
+    first = await runtime.spawn(a)
+    second = await runtime.spawn(b)
 
     # Structural check: handle.id is a uuid4().hex — 32 lowercase hex chars,
     # independent of PID. Two spawns must yield distinct ids.
@@ -204,3 +217,132 @@ async def test_aijail_runtime_kill_removes_settings_when_worktree_provided(
     )
 
     assert not (tmp_path / ".claude" / "settings.json").exists()
+
+
+# === .ai-jail config / git-dir discovery (F5.0) ===========================
+
+
+@pytest.mark.unit
+def test_discover_git_dirs_with_no_git_returns_empty(tmp_path: Path) -> None:
+    """Empty cwd or one without any `.git` returns an empty list — used
+    by NullSessionRuntime tests / non-git scratch dirs."""
+    assert _discover_git_dirs(tmp_path) == []
+
+
+@pytest.mark.unit
+def test_discover_git_dirs_on_nonexistent_cwd_returns_empty(tmp_path: Path) -> None:
+    """Defensive: cwd doesn't exist (e.g. spawn race vs cleanup) → empty,
+    no crash. Covers the `is_dir()` short-circuit branch."""
+    assert _discover_git_dirs(tmp_path / "does-not-exist") == []
+
+
+@pytest.mark.unit
+def test_discover_git_dirs_with_local_git_dir_returns_it(tmp_path: Path) -> None:
+    """Primary checkout: `cwd/.git` is a real dir → returned as-is."""
+    (tmp_path / ".git").mkdir()
+    assert _discover_git_dirs(tmp_path) == [tmp_path / ".git"]
+
+
+@pytest.mark.unit
+def test_discover_git_dirs_resolves_worktree_pointer_file(tmp_path: Path) -> None:
+    """Secondary worktree (mono): `.git` is a *file* containing
+    `gitdir: <project>/.git/worktrees/<name>`; we return `<project>/.git`."""
+    project = tmp_path / "proj"
+    (project / ".git" / "worktrees" / "feat").mkdir(parents=True)
+    cwd = tmp_path / "proj--feat"
+    cwd.mkdir()
+    (cwd / ".git").write_text(f"gitdir: {project / '.git' / 'worktrees' / 'feat'}\n")
+    assert _discover_git_dirs(cwd) == [project / ".git"]
+
+
+@pytest.mark.unit
+def test_discover_git_dirs_multi_repo_scans_immediate_children(tmp_path: Path) -> None:
+    """Multi-repo: cwd has subdirs (backend/, frontend/), each with `.git`
+    pointer; both originals are returned, sorted."""
+    project = tmp_path / "multi"
+    for sub in ("backend", "frontend"):
+        (project / sub / ".git" / "worktrees" / "feat").mkdir(parents=True)
+    cwd = tmp_path / "multi--feat"
+    for sub in ("backend", "frontend"):
+        (cwd / sub).mkdir(parents=True)
+        (cwd / sub / ".git").write_text(
+            f"gitdir: {project / sub / '.git' / 'worktrees' / 'feat'}\n"
+        )
+    expected = [project / "backend" / ".git", project / "frontend" / ".git"]
+    assert _discover_git_dirs(cwd) == expected
+
+
+@pytest.mark.unit
+def test_discover_git_dirs_skips_malformed_pointer(tmp_path: Path) -> None:
+    """Pointer file that doesn't match `gitdir: ...` is silently skipped
+    (graceful: no broken worktree blocks spawn)."""
+    cwd = tmp_path / "wt"
+    cwd.mkdir()
+    (cwd / ".git").write_text("garbage no gitdir prefix\n")
+    assert _discover_git_dirs(cwd) == []
+
+
+@pytest.mark.unit
+def test_discover_git_dirs_skips_pointer_with_unexpected_layout(tmp_path: Path) -> None:
+    """Pointer to non-worktrees path (e.g. submodule) is skipped — only
+    `.../<repo>/.git/worktrees/<name>` layout is recognized."""
+    cwd = tmp_path / "wt"
+    cwd.mkdir()
+    (cwd / ".git").write_text("gitdir: /some/odd/path\n")
+    assert _discover_git_dirs(cwd) == []
+
+
+@pytest.mark.unit
+def test_discover_git_dirs_handles_unreadable_pointer(tmp_path: Path) -> None:
+    """OSError on read is swallowed (e.g. permission denied on a race);
+    we just skip that candidate and continue with the rest."""
+    cwd = tmp_path / "wt"
+    cwd.mkdir()
+    bad = cwd / ".git"
+    bad.write_text("gitdir: /x/.git/worktrees/y\n")
+    bad.chmod(0o000)
+    try:
+        # Should not raise even though we cannot read this pointer.
+        result = _discover_git_dirs(cwd)
+    finally:
+        bad.chmod(0o644)
+    assert result == []
+
+
+@pytest.mark.unit
+def test_write_aijail_config_with_no_git_uses_empty_rw_maps(tmp_path: Path) -> None:
+    write_aijail_config(tmp_path)
+    content = (tmp_path / ".ai-jail").read_text()
+    assert 'command = ["claude", "--dangerously-skip-permissions"]' in content
+    assert "rw_maps = []" in content
+
+
+@pytest.mark.unit
+def test_write_aijail_config_with_git_pointer_emits_rw_maps(tmp_path: Path) -> None:
+    """Worktree pointer must end up in rw_maps so `git status` resolves
+    inside the jail (F5.0 confirmed this is required by ai-jail bwrap)."""
+    project = tmp_path / "proj"
+    (project / ".git" / "worktrees" / "feat").mkdir(parents=True)
+    cwd = tmp_path / "proj--feat"
+    cwd.mkdir()
+    (cwd / ".git").write_text(f"gitdir: {project / '.git' / 'worktrees' / 'feat'}\n")
+    write_aijail_config(cwd)
+    content = (cwd / ".ai-jail").read_text()
+    assert f'"{project / ".git"}"' in content
+    assert "ro_maps = []" in content
+    assert "hide_dotdirs = []" in content
+
+
+@pytest.mark.unit
+async def test_aijail_runtime_spawn_writes_aijail_config_before_invoking(
+    tmp_path: Path,
+) -> None:
+    """spawn always writes `.ai-jail` (even without token/base_url) since
+    ai-jail v0.10+ needs the config to know what `command` to exec."""
+    ops = FakeProcessOps()
+    runtime = AiJailRuntime(terminal_resolver=lambda: "kitty", process_ops=ops)
+
+    await runtime.spawn(tmp_path)
+
+    assert (tmp_path / ".ai-jail").is_file()
+    assert 'command = ["claude"' in (tmp_path / ".ai-jail").read_text()
