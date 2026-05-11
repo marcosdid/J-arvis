@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.git import GitWorktreeOps
 from orchestrator.core.port_allocator import PortAllocator
 from orchestrator.events.broadcaster import WsBroadcaster
@@ -75,3 +76,10 @@ def resolve_port_allocator(request: Request) -> "PortAllocator":
     if alloc is None:  # pragma: no cover
         raise RuntimeError("port_allocator not configured in app.state")
     return alloc
+
+
+def resolve_catalog(request: Request) -> Catalog:
+    cat: Catalog | None = request.app.state.catalog
+    if cat is None:  # pragma: no cover
+        raise RuntimeError("catalog not configured in app.state")
+    return cat
