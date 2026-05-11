@@ -21,6 +21,25 @@ export type WsEvent =
         project_id: string; title: string;
         state: string; previous_state: string | null;
       }; at: string;
+    }
+  | {
+      type: 'worktree.created'; session_id: ''; task_id: string | null;
+      payload: {
+        project_id: string; repository_id: string; worktree_id: string;
+        path: string; branch: string | null;
+      }; at: string;
+    }
+  | {
+      type: 'worktree.removed'; session_id: ''; task_id: string | null;
+      payload: {
+        project_id: string; worktree_id: string; path: string;
+      }; at: string;
+    }
+  | {
+      type: 'worktree.orphaned'; session_id: ''; task_id: string | null;
+      payload: {
+        project_id: string; worktree_id: string; path: string; reason: string;
+      }; at: string;
     };
 
 export type WsHandlers = {

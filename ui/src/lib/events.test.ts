@@ -51,3 +51,50 @@ describe('dispatch — task events', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe('dispatch — worktree events', () => {
+  it('dispatches worktree.created', () => {
+    const calls: WsEvent[] = [];
+    dispatch(
+      {
+        type: 'worktree.created', session_id: '', task_id: 't1',
+        payload: {
+          project_id: 'p1', repository_id: 'r1',
+          worktree_id: 'w1', path: '/wt', branch: 'feat/x',
+        },
+        at: '2026',
+      },
+      { 'worktree.created': (e) => calls.push(e) },
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  it('dispatches worktree.removed', () => {
+    const calls: WsEvent[] = [];
+    dispatch(
+      {
+        type: 'worktree.removed', session_id: '', task_id: 't1',
+        payload: { project_id: 'p1', worktree_id: 'w1', path: '/wt' },
+        at: '2026',
+      },
+      { 'worktree.removed': (e) => calls.push(e) },
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  it('dispatches worktree.orphaned', () => {
+    const calls: WsEvent[] = [];
+    dispatch(
+      {
+        type: 'worktree.orphaned', session_id: '', task_id: null,
+        payload: {
+          project_id: 'p1', worktree_id: 'w1',
+          path: '/wt', reason: 'fs_missing',
+        },
+        at: '2026',
+      },
+      { 'worktree.orphaned': (e) => calls.push(e) },
+    );
+    expect(calls).toHaveLength(1);
+  });
+});

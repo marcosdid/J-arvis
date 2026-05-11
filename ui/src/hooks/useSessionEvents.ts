@@ -5,7 +5,12 @@ import { dispatch } from '../lib/events';
 import { queryKeys } from '../lib/query-keys';
 import { connectWs } from '../lib/ws';
 
-export function useSessionEvents(queryClient: QueryClient): void {
+export type WorktreeOrphanedToastEmitter = (msg: string) => void;
+
+export function useSessionEvents(
+  queryClient: QueryClient,
+  emitToast?: WorktreeOrphanedToastEmitter,
+): void {
   useEffect(() => {
     const conn = connectWs((event) => {
       dispatch(event, {
@@ -23,8 +28,26 @@ export function useSessionEvents(queryClient: QueryClient): void {
         'task.updated': () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
         },
+        'worktree.created': (e) => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.worktrees(e.payload.project_id),
+          });
+        },
+        'worktree.removed': (e) => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.worktrees(e.payload.project_id),
+          });
+        },
+        'worktree.orphaned': (e) => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.worktrees(e.payload.project_id),
+          });
+          if (emitToast) {
+            emitToast(`Worktree não pôde ser removida: ${e.payload.path}`);
+          }
+        },
       });
     });
     return () => conn.disconnect();
-  }, [queryClient]);
+  }, [queryClient, emitToast]);
 }

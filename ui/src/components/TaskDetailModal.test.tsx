@@ -101,11 +101,9 @@ describe('TaskDetailModal', () => {
     });
   });
 
-  it('iniciar sessão calls startTaskSession with task id', async () => {
+  it('iniciar sessão calls startTaskSession with task id (sem worktree picker)', async () => {
     wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
     await screen.findByDisplayValue('X');
-    const wtSelect = screen.getByLabelText(/worktree/i) as HTMLSelectElement;
-    fireEvent.change(wtSelect, { target: { value: 'w1' } });
     const btn = screen.getByRole('button', { name: /iniciar sessão/i });
     fireEvent.click(btn);
     await waitFor(() => {

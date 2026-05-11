@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { queryKeys } from '../lib/query-keys';
 import { isValidTransition } from '../lib/transitions';
 import { translateError } from '../lib/errorMessages';
 import { usePatchTask, useStartTaskSession } from '../hooks/useTaskMutations';
@@ -9,22 +10,56 @@ const ALL_STATES = ['idea', 'ready', 'in_progress', 'review', 'done', 'discarded
 
 type Props = { taskId: string; onClose: () => void };
 
+function BranchEditField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <label>
+      Branch:
+      <input
+        aria-label="task-branch-edit"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          if (draft !== value) onChange(draft);
+        }}
+        pattern="^[a-z0-9][a-z0-9._/-]*$"
+        maxLength={200}
+        placeholder="auto-slug do título"
+      />
+    </label>
+  );
+}
+
 export function TaskDetailModal({ taskId, onClose }: Props) {
+  const qc = useQueryClient();
   const task = useQuery({
     queryKey: ['task', taskId],
     queryFn: () => api.getTask(taskId),
   });
   const worktrees = useQuery({
-    queryKey: ['worktrees', task.data?.project_id],
+    queryKey: task.data ? queryKeys.worktrees(task.data.project_id) : ['worktrees', '__pending__'],
     queryFn: () => api.listWorktrees(task.data!.project_id),
     enabled: !!task.data,
   });
   const patch = usePatchTask();
   const start = useStartTaskSession();
+  const branchPatch = useMutation({
+    mutationFn: (branch: string) => api.patchTask(taskId, { branch }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.tasks }),
+  });
 
   const [titleDraft, setTitleDraft] = useState('');
   const [descDraft, setDescDraft] = useState('');
-  const [selectedWorktree, setSelectedWorktree] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,6 +94,8 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
   );
 
   const isTerminal = t.state === 'done' || t.state === 'discarded';
+  const taskWorktrees = (worktrees.data ?? []).filter((w) => w.task_id === taskId);
+  const hasWorktrees = taskWorktrees.length > 0;
 
   return (
     <div role="dialog" className="modal" aria-label={t.title}>
@@ -88,23 +125,22 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
         </select>
       </label>
 
+      {!hasWorktrees && (
+        <BranchEditField
+          value={t.branch ?? ''}
+          onChange={(v) => branchPatch.mutate(v)}
+        />
+      )}
+      {hasWorktrees && t.branch && (
+        <p>
+          Branch: <code>{t.branch}</code> <em>(imutável após 1ª sessão)</em>
+        </p>
+      )}
+
       <h4>Sessions</h4>
 
-      <label>
-        Worktree:
-        <select
-          aria-label="worktree"
-          value={selectedWorktree}
-          onChange={(e) => setSelectedWorktree(e.target.value)}
-        >
-          <option value="">—</option>
-          {(worktrees.data ?? []).map((w) => (
-            <option key={w.id} value={w.id}>{w.branch ?? '(detached)'}</option>
-          ))}
-        </select>
-      </label>
       <button
-        disabled={isTerminal || !selectedWorktree}
+        disabled={isTerminal}
         onClick={() =>
           start.mutate(
             { taskId },
@@ -118,6 +154,21 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
         ▶ Iniciar sessão
       </button>
       {error && <p role="alert">{error}</p>}
+
+      {hasWorktrees && (
+        <details>
+          <summary>Worktrees ({taskWorktrees.length})</summary>
+          <ul>
+            {taskWorktrees.map((w) => (
+              <li key={w.id}>
+                {w.repository_name && <strong>{w.repository_name}</strong>}
+                : <code>{w.path}</code>
+                {w.branch && <> @ <code>{w.branch}</code></>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
