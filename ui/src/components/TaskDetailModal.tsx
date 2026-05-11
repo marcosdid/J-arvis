@@ -5,6 +5,7 @@ import { queryKeys } from '../lib/query-keys';
 import { isValidTransition } from '../lib/transitions';
 import { translateError } from '../lib/errorMessages';
 import { usePatchTask, useStartTaskSession } from '../hooks/useTaskMutations';
+import { RunTab } from './RunTab';
 
 const ALL_STATES = ['idea', 'ready', 'in_progress', 'review', 'done', 'discarded'];
 
@@ -167,6 +168,13 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
               </li>
             ))}
           </ul>
+        </details>
+      )}
+
+      {(t.state === 'in_progress' || t.state === 'review') && (
+        <details className="run-tab-details">
+          <summary>Run</summary>
+          <RunTab taskId={taskId} />
         </details>
       )}
     </div>

@@ -1,8 +1,15 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TaskCard } from './TaskCard';
 import type { Task, Project } from '../lib/api';
 import { DndContext } from '@dnd-kit/core';
+
+// In_progress/review states embed <RunStatus /> which queries the run.
+// Stub api so the hook resolves cleanly to "no active run".
+vi.mock('../lib/api', () => ({
+  api: { getActiveRun: vi.fn().mockRejectedValue(new Error('HTTP 404')) },
+}));
 
 const baseTask: Task = {
   id: 't1', project_id: 'p1', title: 'Adicionar dark mode',
@@ -16,7 +23,12 @@ const projects = new Map<string, Project>([
 ]);
 
 function wrap(node: React.ReactElement) {
-  return render(<DndContext>{node}</DndContext>);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <DndContext>{node}</DndContext>
+    </QueryClientProvider>,
+  );
 }
 
 describe('TaskCard', () => {

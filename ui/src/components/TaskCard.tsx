@@ -2,6 +2,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Task, Project } from '../lib/api';
 import { projectColor } from '../lib/projectColor';
+import { RunStatus } from './RunStatus';
 
 type Props = {
   task: Task;
@@ -37,6 +38,9 @@ export function TaskCard({ task, projects, onClick }: Props) {
       </span>
       <h4>{task.title}</h4>
       {subTag && <span className="sub-tag">{subTag}</span>}
+      {(task.state === 'in_progress' || task.state === 'review') && (
+        <RunStatus taskId={task.id} />
+      )}
     </div>
   );
 }
