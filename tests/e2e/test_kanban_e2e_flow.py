@@ -59,16 +59,42 @@ def test_kanban_happy_path(
     inprog = page.locator('[data-testid="column-In Progress"]')
     expect(inprog).to_contain_text("Adicionar dark mode")
 
-    # Drag In Progress → Review
+    # Drag In Progress → Review. dnd-kit now uses activationConstraint
+    # distance=8 (preserves card-click semantics); Playwright's single-step
+    # drag_to() jumps too fast for dnd-kit's pointermove to register, so
+    # we drive the mouse manually with steps to simulate real movement.
+    def manual_drag(src_locator, target_locator) -> None:
+        src_box = src_locator.bounding_box()
+        tgt_box = target_locator.bounding_box()
+        assert src_box and tgt_box
+        page.mouse.move(
+            src_box["x"] + src_box["width"] / 2,
+            src_box["y"] + src_box["height"] / 2,
+        )
+        page.mouse.down()
+        page.mouse.move(
+            tgt_box["x"] + tgt_box["width"] / 2,
+            tgt_box["y"] + tgt_box["height"] / 2,
+            steps=20,
+        )
+        page.mouse.up()
+
     src = inprog.locator('[data-task-id]').first
     review = page.locator('[data-testid="column-Review"]')
-    src.drag_to(review)
+    manual_drag(src, review)
     expect(review).to_contain_text("Adicionar dark mode")
+
+    # F5 guard: stop session before moving to terminal state (done/discarded)
+    sessions = page.evaluate("async () => (await fetch('/api/sessions')).json()")
+    sid = sessions[0]["id"]
+    page.evaluate(
+        f"async () => fetch('/api/sessions/{sid}/stop', {{ method: 'POST' }})"
+    )
 
     # Drag Review → Done
     src = review.locator('[data-task-id]').first
     done = page.locator('[data-testid="column-Done"]')
-    src.drag_to(done)
+    manual_drag(src, done)
     expect(done).to_contain_text("Adicionar dark mode")
 
 

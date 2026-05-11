@@ -1,4 +1,11 @@
-import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
@@ -42,6 +49,12 @@ type Props = {
 };
 
 export function Kanban({ filters, onCardClick }: Props) {
+  // 8-px activation distance preserves card-click semantics (dnd-kit's
+  // default PointerSensor activates on any pointer-down and its
+  // preventDefault() suppresses the synthesized React onClick).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  );
   const tasks = useTasks(filters.length ? filters : undefined);
   const projects = useQuery({
     queryKey: queryKeys.projects,
@@ -115,7 +128,7 @@ export function Kanban({ filters, onCardClick }: Props) {
           {error}
         </div>
       )}
-      <DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <div className="kanban">
           {COLUMNS.map((col) => (
             <KanbanColumn

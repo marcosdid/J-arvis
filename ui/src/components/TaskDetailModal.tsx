@@ -43,7 +43,7 @@ function BranchEditField({
 export function TaskDetailModal({ taskId, onClose }: Props) {
   const qc = useQueryClient();
   const task = useQuery({
-    queryKey: ['task', taskId],
+    queryKey: queryKeys.task(taskId),
     queryFn: () => api.getTask(taskId),
   });
   const worktrees = useQuery({

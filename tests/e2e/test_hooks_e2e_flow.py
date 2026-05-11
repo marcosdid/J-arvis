@@ -39,13 +39,20 @@ def test_hooks_e2e_status_changes_via_simulated_hook(
     )
     token = debug_resp["token"]
 
+    # Post-F4 the UI doesn't display session.status text directly (kanban
+    # is task-centric; lib/format.ts orphan). We verify the hook plumbing
+    # via the API: each hook POST must change session.status server-side.
     page.evaluate(
         "async (t) => fetch(`/api/hooks/Notification/${t}`,"
         " { method: 'POST', headers: { 'Content-Type': 'application/json' },"
         "   body: JSON.stringify({ message: 'need input' }) })",
         token,
     )
-    expect(page.get_by_text("Aguardando resposta")).to_be_visible()
+    all_sessions = page.evaluate(
+        "async () => (await fetch('/api/sessions')).json()"
+    )
+    status = next(s for s in all_sessions if s["id"] == sid)
+    assert status["status"] == "awaiting_response", status
 
     page.evaluate(
         "async (t) => fetch(`/api/hooks/Stop/${t}`,"
@@ -53,4 +60,8 @@ def test_hooks_e2e_status_changes_via_simulated_hook(
         "   body: JSON.stringify({ reason: 'end' }) })",
         token,
     )
-    expect(page.get_by_text("Ocioso")).to_be_visible()
+    all_sessions = page.evaluate(
+        "async () => (await fetch('/api/sessions')).json()"
+    )
+    status = next(s for s in all_sessions if s["id"] == sid)
+    assert status["status"] == "idle", status
