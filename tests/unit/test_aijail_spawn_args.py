@@ -3,17 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.core.catalog import Catalog, load_catalog
+from orchestrator.core.catalog import Catalog
 from orchestrator.sandbox.aijail import (
     AiJailRuntime,
     PermissionProfileNotInCatalogError,
     write_aijail_config,
 )
-
-
-def _catalog() -> Catalog:
-    repo_root = Path(__file__).resolve().parents[2]
-    return load_catalog(repo_root / "orchestrator" / "config" / "catalog.yml")
 
 
 class _FakeProcessOps:
@@ -62,33 +57,39 @@ def test_write_aijail_config_preserves_other_keys(tmp_path: Path) -> None:
     assert "allow_tcp_ports = []" in text
 
 
-async def test_aijail_runtime_spawn_resolves_profile(tmp_path: Path) -> None:
+async def test_aijail_runtime_spawn_resolves_profile(
+    tmp_path: Path, catalog: Catalog
+) -> None:
     ops = _FakeProcessOps()
     runtime = AiJailRuntime(lambda: "xterm", ops)
     handle = await runtime.spawn(
         tmp_path,
         permission_profile="read-only",
-        catalog=_catalog(),
+        catalog=catalog,
     )
     assert handle.pid == 12345
     text = (tmp_path / ".ai-jail").read_text()
     assert '"--permission-mode", "plan"' in text
 
 
-async def test_aijail_runtime_spawn_none_uses_fallback(tmp_path: Path) -> None:
+async def test_aijail_runtime_spawn_none_uses_fallback(
+    tmp_path: Path, catalog: Catalog
+) -> None:
     """permission_profile=None → fallback do catalog (yolo no nosso catalog.yml)."""
     ops = _FakeProcessOps()
     runtime = AiJailRuntime(lambda: "xterm", ops)
     await runtime.spawn(
         tmp_path,
         permission_profile=None,
-        catalog=_catalog(),
+        catalog=catalog,
     )
     text = (tmp_path / ".ai-jail").read_text()
     assert '"--dangerously-skip-permissions"' in text
 
 
-async def test_aijail_runtime_spawn_stale_profile_raises(tmp_path: Path) -> None:
+async def test_aijail_runtime_spawn_stale_profile_raises(
+    tmp_path: Path, catalog: Catalog
+) -> None:
     """Perfil removido do catalog → PermissionProfileNotInCatalogError."""
     ops = _FakeProcessOps()
     runtime = AiJailRuntime(lambda: "xterm", ops)
@@ -96,7 +97,7 @@ async def test_aijail_runtime_spawn_stale_profile_raises(tmp_path: Path) -> None
         await runtime.spawn(
             tmp_path,
             permission_profile="ghost",
-            catalog=_catalog(),
+            catalog=catalog,
         )
     assert not (tmp_path / ".ai-jail").exists()
     assert ops.spawns == []

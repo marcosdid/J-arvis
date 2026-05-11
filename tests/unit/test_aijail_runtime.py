@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.core.catalog import Catalog, load_catalog
+from orchestrator.core.catalog import Catalog
 from orchestrator.sandbox.aijail import (
     AiJailRuntime,
     NoTerminalFoundError,
@@ -14,11 +14,6 @@ from orchestrator.sandbox.aijail import (
 )
 from orchestrator.sandbox.runtime import JailHandle
 from orchestrator.sandbox.settings_writer import write_settings_into_jail
-
-
-def _catalog() -> Catalog:
-    repo_root = Path(__file__).resolve().parents[2]
-    return load_catalog(repo_root / "orchestrator" / "config" / "catalog.yml")
 
 
 class FakeProcessOps:
@@ -119,7 +114,7 @@ def test_detect_terminal_rejects_unsupported_env_override() -> None:
 
 @pytest.mark.unit
 async def test_aijail_runtime_spawn_invokes_terminal_with_aijail_no_run_subcommand(
-    tmp_path: Path,
+    tmp_path: Path, catalog: Catalog,
 ) -> None:
     """v0.10+ ai-jail CLI: no `run` subcommand; argv is just `["ai-jail"]`
     and command is read from `<cwd>/.ai-jail`. See gotcha #16."""
@@ -130,7 +125,7 @@ async def test_aijail_runtime_spawn_invokes_terminal_with_aijail_no_run_subcomma
     )
 
     handle = await runtime.spawn(
-        tmp_path, permission_profile=None, catalog=_catalog(),
+        tmp_path, permission_profile=None, catalog=catalog,
     )
 
     assert isinstance(handle, JailHandle)
@@ -161,7 +156,7 @@ async def test_aijail_runtime_kill_sends_signal() -> None:
 
 @pytest.mark.unit
 async def test_aijail_runtime_handle_id_is_uuid_not_pid_based(
-    tmp_path: Path,
+    tmp_path: Path, catalog: Catalog,
 ) -> None:
     ops = FakeProcessOps(pid=42)
     runtime = AiJailRuntime(
@@ -173,9 +168,8 @@ async def test_aijail_runtime_handle_id_is_uuid_not_pid_based(
     a.mkdir()
     b.mkdir()
 
-    cat = _catalog()
-    first = await runtime.spawn(a, permission_profile=None, catalog=cat)
-    second = await runtime.spawn(b, permission_profile=None, catalog=cat)
+    first = await runtime.spawn(a, permission_profile=None, catalog=catalog)
+    second = await runtime.spawn(b, permission_profile=None, catalog=catalog)
 
     # Structural check: handle.id is a uuid4().hex — 32 lowercase hex chars,
     # independent of PID. Two spawns must yield distinct ids.
@@ -200,14 +194,14 @@ async def test_aijail_runtime_kill_swallows_process_lookup_error() -> None:
 
 @pytest.mark.unit
 async def test_aijail_runtime_spawn_writes_settings_when_token_and_base_url_provided(
-    tmp_path: Path,
+    tmp_path: Path, catalog: Catalog,
 ) -> None:
     ops = FakeProcessOps()
     runtime = AiJailRuntime(terminal_resolver=lambda: "kitty", process_ops=ops)
 
     await runtime.spawn(
         tmp_path,
-        permission_profile=None, catalog=_catalog(),
+        permission_profile=None, catalog=catalog,
         token="tok-x", base_url="http://h:1",
     )
 
@@ -349,14 +343,14 @@ def test_write_aijail_config_with_git_pointer_emits_rw_maps(tmp_path: Path) -> N
 
 @pytest.mark.unit
 async def test_aijail_runtime_spawn_writes_aijail_config_before_invoking(
-    tmp_path: Path,
+    tmp_path: Path, catalog: Catalog,
 ) -> None:
     """spawn always writes `.ai-jail` (even without token/base_url) since
     ai-jail v0.10+ needs the config to know what `command` to exec."""
     ops = FakeProcessOps()
     runtime = AiJailRuntime(terminal_resolver=lambda: "kitty", process_ops=ops)
 
-    await runtime.spawn(tmp_path, permission_profile=None, catalog=_catalog())
+    await runtime.spawn(tmp_path, permission_profile=None, catalog=catalog)
 
     assert (tmp_path / ".ai-jail").is_file()
     assert 'command = ["claude"' in (tmp_path / ".ai-jail").read_text()
