@@ -64,8 +64,13 @@ class Catalog(BaseModel):
 
 def load_catalog(path: Path) -> Catalog:
     """Lê YAML, valida via Pydantic + cross-field refs. Raise
-    `FileNotFoundError` se ausente, `CatalogValidationError` se inválido."""
-    raw = yaml.safe_load(path.read_text())
+    `FileNotFoundError` se ausente, `CatalogValidationError` se inválido
+    (YAML malformado ou schema mismatch)."""
+    text = path.read_text()
+    try:
+        raw = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise CatalogValidationError(f"malformed YAML: {exc}") from exc
     try:
         return Catalog.model_validate(raw)
     except ValidationError as exc:

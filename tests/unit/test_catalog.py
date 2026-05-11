@@ -9,7 +9,6 @@ from orchestrator.core.catalog import (
     load_catalog,
 )
 
-
 _VALID_YAML = """
 version: "1"
 fallback_permission_profile: yolo
@@ -54,27 +53,27 @@ def test_template_default_profile_dangling_raises(tmp_path: Path) -> None:
 
 def test_extra_field_forbidden(tmp_path: Path) -> None:
     bad = _VALID_YAML.replace("templates:", "extra_field: 42\ntemplates:")
-    with pytest.raises(Exception, match="extra"):  # ValidationError
+    with pytest.raises(CatalogValidationError, match="extra"):
         load_catalog(_write(tmp_path, bad))
 
 
 def test_branch_prefix_without_slash_rejected(tmp_path: Path) -> None:
     bad = _VALID_YAML.replace('branch_prefix: "feat-ui/"',
                               'branch_prefix: "feat-ui"')
-    with pytest.raises(Exception, match="branch_prefix|pattern"):
+    with pytest.raises(CatalogValidationError, match=r"branch_prefix|pattern"):
         load_catalog(_write(tmp_path, bad))
 
 
 def test_branch_prefix_multi_segment_rejected(tmp_path: Path) -> None:
     bad = _VALID_YAML.replace('branch_prefix: "feat-ui/"',
                               'branch_prefix: "feat/ui/"')
-    with pytest.raises(Exception, match="branch_prefix|pattern"):
+    with pytest.raises(CatalogValidationError, match=r"branch_prefix|pattern"):
         load_catalog(_write(tmp_path, bad))
 
 
 def test_version_must_be_1(tmp_path: Path) -> None:
     bad = _VALID_YAML.replace('version: "1"', 'version: "2"')
-    with pytest.raises(Exception, match="version"):
+    with pytest.raises(CatalogValidationError, match="version"):
         load_catalog(_write(tmp_path, bad))
 
 
@@ -103,3 +102,11 @@ def test_real_catalog_yml_is_valid() -> None:
     assert set(cat.templates.keys()) == {"frontend", "backend", "refactor", "bugfix"}
     assert set(cat.permission_profiles.keys()) == {"yolo", "default", "read-only"}
     assert cat.fallback_permission_profile == "yolo"
+
+
+def test_malformed_yaml_raises_catalog_error(tmp_path: Path) -> None:
+    """Malformed YAML should raise CatalogValidationError, not yaml.YAMLError."""
+    p = tmp_path / "catalog.yml"
+    p.write_text("version: '1'\n  bad-indent: oops\n  - mixed-types\n")
+    with pytest.raises(CatalogValidationError, match="malformed YAML"):
+        load_catalog(p)
