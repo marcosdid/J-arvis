@@ -269,3 +269,31 @@ resposta"))` ficou enganado — não há esse texto na DOM.
 **Fix pendente** (fora de escopo F5): ou re-incluir o status num
 `TaskCard` quando `task.active_session_id`, ou remover `format.ts`
 completo. Decisão de produto.
+
+## 15. `ai-jail run` não roda aninhado dentro de outra jaula
+
+**Regra:** uma sessão Claude já rodando em `ai-jail` (ou qualquer
+sandbox que zere `CapEff` e bloqueie `unshare --user`) **não consegue
+spawnar uma jaula filha**. `bwrap`, que `ai-jail` invoca por baixo,
+falha com `Failed to make / slave: Operation not permitted`.
+
+**Como detectar:**
+```bash
+grep '^CapEff' /proc/self/status     # 0000000000000000 = sandboxed
+unshare --user true                  # "Operation not permitted" = sandboxed
+bwrap --dev-bind / / true            # "Failed to make / slave" = sandboxed
+```
+
+**Diferença vs gotcha #9:** #9 é sobre docker daemon socket
+(testcontainers/E2E) — pode passar via socket bind-mount mesmo dentro
+da jaula. #15 é sobre `CAP_SYS_ADMIN` + user namespaces que `bwrap`
+exige pra montar o overlay — esses não são "passáveis" via socket;
+exigem privilégio real do kernel.
+
+**Como aplicar:** F5.0 spike (validação de multi-repo dentro de
+ai-jail), Demo manual completa de F5, ou qualquer cenário onde
+o agente Claude precise iniciar **outra** sessão Claude jailed, **só
+funciona do host nativo** — não da jaula corrente. O daemon
+J-arvis em produção roda no host como user `jarvis`, então spawn de
+jaulas filhas é OK lá; só o agente-de-desenvolvimento (esta sessão)
+é que tem limitação.
