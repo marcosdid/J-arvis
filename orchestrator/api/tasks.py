@@ -30,6 +30,7 @@ from orchestrator.core.tasks import (
     list_tasks,
     update_task,
 )
+from orchestrator.core.runs import get_active_run, stop_run
 from orchestrator.core.worktrees import cleanup_task_worktrees
 from orchestrator.events.envelope import WsEvent
 from orchestrator.sandbox.runtime import SessionRuntime
@@ -203,6 +204,19 @@ async def patch_task(
     broadcaster = request.app.state.ws_broadcaster
 
     if payload.state in ("done", "discarded") and previous_state is not None:
+        # F6 lifecycle layer 3 (ADR-0018): stop run ativa antes do worktree
+        # cleanup — containers Docker montam source via volume nos worktrees,
+        # então parar run primeiro evita "broken bind mount" mid-cleanup.
+        # Skipa graceful se F6 deps não estão wiradas (tests F1-F5 isoladas).
+        docker = getattr(request.app.state, "docker_ops", None)
+        allocator = getattr(request.app.state, "port_allocator", None)
+        if docker is not None and allocator is not None and broadcaster is not None:
+            active_run = await get_active_run(db, task_id)
+            if active_run is not None:
+                await stop_run(
+                    db, docker, allocator, broadcaster,
+                    run_id=active_run.id, reason="task_terminal",
+                )
         await cleanup_task_worktrees(db, git, broadcaster, task_id)
 
     if broadcaster is not None and previous_state is not None:

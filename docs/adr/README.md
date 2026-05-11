@@ -32,3 +32,6 @@ Registro de decisões arquiteturais. Estilo Michael Nygard.
 | [0015](0015-project-multi-repo-com-auto-detect.md) | Project multi-repo com auto-detect de sub-repos via `Repository` | Accepted | 2026-05-11 |
 | [0016](0016-multi-repo-1-sessao-cwd-shared.md) | Multi-repo: 1 sessão Claude com `cwd` compartilhado entre sub-worktrees | Accepted | 2026-05-11 |
 | [0017](0017-worktree-detalhe-da-task-sem-create-ui.md) | Worktree é detalhe da task; sem UI de create/destroy avulsa | Accepted | 2026-05-11 |
+| [0018](0018-run-instance-detalhe-da-task.md) | RunInstance é detalhe da task; 1 run ativa por task | Accepted | 2026-05-11 |
+| [0019](0019-manifest-services-dict-com-depends-on.md) | Manifesto F6 é `services:` dict com `depends_on` | Accepted | 2026-05-11 |
+| [0020](0020-bootstrap-via-sessao-claude-efemera.md) | Bootstrap de manifesto via sessão Claude efêmera + file watcher | Accepted | 2026-05-11 |

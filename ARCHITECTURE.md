@@ -56,8 +56,12 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
   - `cwd` (F5) substitui `worktree_id` da F1/F4: pra multi-repo `cwd` é o
     diretório-pai que contém N worktrees. Ver [ADR-0016](docs/adr/0016-multi-repo-1-sessao-cwd-shared.md).
   - `status ∈ {executing, awaiting_response, idle, error, done}`
-- `RunInstance(id, worktree_id, manifest_path, status, ports_json, started_at)`
-  - `status ∈ {building, seeding, ready, failed, stopped}`
+- `RunInstance(id, task_id, cwd, manifest_path, status, ports_json, containers_json, network_name, started_at, ended_at?, error_message?)` *(F6)*
+  - `status ∈ {pending, building, seeding, ready, failed, stopping, stopped}`
+  - Partial unique `(task_id) WHERE ended_at IS NULL` → 1 run ativa por
+    task. Ver [ADR-0018](docs/adr/0018-run-instance-detalhe-da-task.md).
+  - `ports_json` mapa `{<service>: <host_port>}`; `containers_json` mapa
+    `{<service>: <container_id>}` pra cleanup.
 
 `claude-mem` cuida de memória entre sessões — não duplicar.
 
@@ -206,7 +210,7 @@ Cada fase termina demonstrável + verde nas três camadas.
 | ~~F3~~ | **Cancelada** — fundida em F2; ver [ADR-0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | — |
 | **F4 — Backlog kanban** ✅ | Kanban unificado cross-project; criar/mover/discardar tasks; iniciar sessão de uma task; quick session cria task implícita | `Task`, kanban UI 5 colunas com `@dnd-kit`, `Session.task_id` NOT NULL, drawer lateral pra projects/worktrees. F4.m fechou gate de cobertura (auto-marker em `tests/conftest.py`) |
 | **F5 — Mapa de worktrees + multi-repo** ✅ | Drawer "Projetos & Worktrees": árvore task-grouped por projeto; multi-repo (1 task → N worktrees compartilham 1 sessão); worktrees auto-criadas ao iniciar sessão, auto-removidas em `done`/`discarded`; órfãs detectadas e removíveis | `Repository` model + auto-detect, `GitWorktreeOps`, `start_session` atomic 3-layer (FS+DB+WS), `task.branch` opcional, hard-break `POST /api/sessions {worktree_id}` |
-| **F6 — Run from Panel** | Botão ▶ Run sobe DB+back+front e abre URL | manifesto, bootstrap por Claude, alocação de portas, Docker descartável, lifecycle |
+| **F6 — Run from Panel** ✅ | `▶ Run` no TaskCard sobe stack via `.orchestrator/run.yml` (services dict docker-compose-like); chips de URL clicáveis quando ready; SSE stream de logs por serviço; bootstrap de manifesto por sessão Claude efêmera quando falta | `RunInstance` task-scoped (1 ativa por task), Pydantic manifest parser, PortAllocator 31000-31999, `DockerOps` Protocol + Subprocess impl, atomic 3-layer rollback, file watcher pra bootstrap |
 | **F7 — Templates + perfis** | Templates frontend/backend/refactor/bugfix com perfil pré-aprovado | catálogo, perfil aplicado no spawn |
 | **F8 (v1.5)** — Planner meta-agente | Usuário cola épico → preview de subtasks → backlog | sessão efêmera, tela de preview, bulk insert |
 
@@ -248,3 +252,6 @@ criar novo ADR e atualizar `docs/adr/README.md`.**
 | Project multi-repo com auto-detect | [0015](docs/adr/0015-project-multi-repo-com-auto-detect.md) | `Repository` entre `Project` e `Worktree`; scan de `.git` em depth 0/1 | Modela mono e multi-repo (gcb-hub) sem friction |
 | Multi-repo 1 sessão cwd shared | [0016](docs/adr/0016-multi-repo-1-sessao-cwd-shared.md) | `ClaudeSession.cwd` = dir-pai contendo N worktrees | Claude vê produto inteiro; preserva "1 session por task" |
 | Worktree é detalhe da task | [0017](docs/adr/0017-worktree-detalhe-da-task-sem-create-ui.md) | Sem UI/API de create avulsa; worktrees auto-gerenciadas pelo ciclo da task | Modelo mental coeso; zero lixo no disco |
+| RunInstance é detalhe da task | [0018](docs/adr/0018-run-instance-detalhe-da-task.md) | `task_id` FK + partial unique `WHERE ended_at IS NULL`; 1 run ativa por task | Paralelo a Worktree/Session pós-F5; cleanup automático em terminal state |
+| Manifest F6 — services dict + depends_on | [0019](docs/adr/0019-manifest-services-dict-com-depends-on.md) | `services:` dict (docker-compose-like), Pydantic `extra="forbid"`, topo sort | Cobre N serviços; familiar pra dev backend |
+| Bootstrap via Claude efêmero | [0020](docs/adr/0020-bootstrap-via-sessao-claude-efemera.md) | Sessão Claude sem task_id + file watcher polling `.orchestrator/run.yml` | Zero manutenção de templates; manifesto fica commitado |

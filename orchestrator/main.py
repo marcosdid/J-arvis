@@ -19,6 +19,7 @@ from orchestrator.config import RuntimeMode, Settings
 from orchestrator.core.git import SubprocessGitWorktreeOps
 from orchestrator.core.health import health_status
 from orchestrator.core.port_allocator import PortAllocator
+from orchestrator.core.runs import cleanup_orphan_runs_at_startup
 from orchestrator.events.broadcaster import InMemoryWsBroadcaster
 from orchestrator.hooks.router import router as hooks_router
 from orchestrator.hooks.tokens import TokenRegistry
@@ -44,6 +45,15 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if database is not None:
             await database.bootstrap()
+            # Restart-recovery (F6): marca runs com `ended_at IS NULL` como
+            # `stopped` + best-effort kill+rm de containers/network/ports.
+            # Sem isso, partial unique bloqueia novos POST /runs e portas
+            # ficam presas. docker_ops/port_allocator são sempre wirados
+            # via create_app defaults (SubprocessDockerOps + PortAllocator).
+            async with database.session() as s:
+                await cleanup_orphan_runs_at_startup(
+                    s, _app.state.docker_ops, _app.state.port_allocator,
+                )
         yield
 
     app = FastAPI(title="J-arvis Orchestrator", version="0.0.1", lifespan=lifespan)
