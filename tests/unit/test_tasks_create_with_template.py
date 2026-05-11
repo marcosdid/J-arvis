@@ -12,12 +12,17 @@ from orchestrator.core.tasks import (
 from orchestrator.store.models import Project
 
 
-async def test_create_task_without_template_stays_null(
-    db_session: AsyncSession, catalog: Catalog,
-) -> None:
+@pytest.fixture
+async def project(db_session: AsyncSession) -> Project:
     proj = Project(id="p1", name="p", path="/tmp/p")
     db_session.add(proj)
     await db_session.commit()
+    return proj
+
+
+async def test_create_task_without_template_stays_null(
+    db_session: AsyncSession, catalog: Catalog, project: Project,
+) -> None:
     task = await create_task(
         db_session,
         project_id="p1", title="hello world",
@@ -30,11 +35,8 @@ async def test_create_task_without_template_stays_null(
 
 
 async def test_create_task_with_template_resolves_prefix_and_profile(
-    db_session: AsyncSession, catalog: Catalog,
+    db_session: AsyncSession, catalog: Catalog, project: Project,
 ) -> None:
-    proj = Project(id="p1", name="p", path="/tmp/p")
-    db_session.add(proj)
-    await db_session.commit()
     task = await create_task(
         db_session,
         project_id="p1", title="Fix logout race",
@@ -47,12 +49,9 @@ async def test_create_task_with_template_resolves_prefix_and_profile(
 
 
 async def test_create_task_with_template_and_branch_override(
-    db_session: AsyncSession, catalog: Catalog,
+    db_session: AsyncSession, catalog: Catalog, project: Project,
 ) -> None:
     """Branch explícito sempre literal, nunca aplica prefix."""
-    proj = Project(id="p1", name="p", path="/tmp/p")
-    db_session.add(proj)
-    await db_session.commit()
     task = await create_task(
         db_session,
         project_id="p1", title="anything",
@@ -65,27 +64,23 @@ async def test_create_task_with_template_and_branch_override(
 
 
 async def test_create_task_with_template_and_branch_starting_with_prefix(
-    db_session: AsyncSession, catalog: Catalog,
+    db_session: AsyncSession, catalog: Catalog, project: Project,
 ) -> None:
     """Even if branch happens to start with prefix, it's literal."""
-    proj = Project(id="p1", name="p", path="/tmp/p")
-    db_session.add(proj)
-    await db_session.commit()
     task = await create_task(
         db_session,
         project_id="p1", title="anything",
         description="", branch="feat-ui/already-prefixed",
         template="frontend", catalog=catalog,
     )
+    assert task.template == "frontend"
+    assert task.permission_profile == "yolo"
     assert task.branch == "feat-ui/already-prefixed"
 
 
 async def test_create_task_invalid_template_raises(
-    db_session: AsyncSession, catalog: Catalog,
+    db_session: AsyncSession, catalog: Catalog, project: Project,
 ) -> None:
-    proj = Project(id="p1", name="p", path="/tmp/p")
-    db_session.add(proj)
-    await db_session.commit()
     with pytest.raises(InvalidTemplateError) as exc:
         await create_task(
             db_session,
@@ -98,12 +93,9 @@ async def test_create_task_invalid_template_raises(
 
 
 async def test_create_task_degenerate_title_with_template_raises(
-    db_session: AsyncSession, catalog: Catalog,
+    db_session: AsyncSession, catalog: Catalog, project: Project,
 ) -> None:
     """Título que slugify falha → InvalidBranchSlugError."""
-    proj = Project(id="p1", name="p", path="/tmp/p")
-    db_session.add(proj)
-    await db_session.commit()
     with pytest.raises(InvalidBranchSlugError):
         await create_task(
             db_session,
