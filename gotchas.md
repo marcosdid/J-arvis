@@ -189,3 +189,83 @@ correspondente passando.
 baseado no diretório-pai do teste (`tests/unit/...` → `pytest.mark.unit`,
 etc). Novos arquivos não precisam declarar marker. Decorators e
 `pytestmark` legados continuam funcionando (markers acumulam).
+
+## 12. dnd-kit sem `activationConstraint` engole o `onClick` do React
+
+**Regra:** elementos com `useSortable`/`useDraggable` que também têm
+`onClick` no mesmo div precisam de `activationConstraint: { distance: N }`
+no sensor — caso contrário o `click` nunca dispara.
+
+**Por quê:** `PointerSensor` default ativa drag no primeiro `pointerdown`
+e chama `event.preventDefault()` pra bloquear seleção de texto.
+[MDN](https://developer.mozilla.org/en-US/docs/Web/API/Element/pointerdown_event):
+*"If preventDefault() is called on pointerdown, the click event for
+that pointer sequence is not fired."* React anexa `onClick` ao evento
+sintético `click`; sem o `click` original, nada dispara.
+
+**Sintoma:** clicar num card de kanban (ou qualquer item drag-and-drop)
+não faz nada. Em vitest passa (não usa pointer real); em Playwright
+falha com `expected modal to be visible` (modal nunca abre).
+
+**Fix:**
+```tsx
+const sensors = useSensors(
+  useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+);
+<DndContext sensors={sensors} ...>
+```
+Com `distance: 8`, drag só ativa após 8 px de movimento; click puro
+(0 px) flui sem `preventDefault`.
+
+**Descoberto:** F5.l E2E. Pré-existia desde F4 mas só apareceu quando
+o E2E rodou de fato.
+
+## 13. React Query keys com prefixo divergente não invalidam em cascata
+
+**Regra:** `invalidateQueries({ queryKey: ['tasks'] })` derruba
+**qualquer** key começando com `['tasks', ...]`. Mas não derruba
+`['task', taskId]` (prefixo `'task'` ≠ `'tasks'`). Singular vs plural
+quebra silenciosamente.
+
+**Sintoma:** componente que usa `useQuery({ queryKey: ['task', id] })`
+nunca atualiza, mesmo quando o mutation chama
+`invalidateQueries({ queryKey: queryKeys.tasks })`. O usuário "muda"
+algo, vê a lista atualizar, mas o detalhe do mesmo registro continua
+mostrando o estado antigo.
+
+**Convenção:** sempre key plural + objeto descritor pra registros
+individuais — `['tasks', { id }]` em vez de `['task', id]`:
+```ts
+export const queryKeys = {
+  tasks: ['tasks'] as const,
+  tasksForProject: (pid) => ['tasks', { projectId: pid }] as const,
+  task: (id) => ['tasks', { id }] as const,
+};
+```
+Assim `invalidateQueries({ queryKey: queryKeys.tasks })` cobre lista +
+filtro-por-projeto + detalhe-individual em 1 chamada.
+
+**Descoberto:** F5.l E2E. `TaskDetailModal` usava `['task', taskId]`;
+após mudar state via `Move to`, o dropdown não recalculava as transitions
+disponíveis até o modal ser fechado+reaberto.
+
+## 14. `lib/format.ts::formatStatus` é código morto pós-F4
+
+**Sintoma:** grep encontra "Em execução"/"Aguardando resposta"/"Ocioso"
+no codebase, dando a impressão de que o UI exibe status de sessão.
+Não exibe — `formatStatus` não é importado por nenhum componente desde
+F4 (kanban virou task-centric; status de sessão não é renderizado em
+lugar visível).
+
+**Implicação prática:** F2 hook plumbing (`Notification` →
+`awaiting_response`, `Stop` → `idle`) **ainda funciona server-side**,
+mas o usuário não vê. E2E que afirmava `expect(text("Aguardando
+resposta"))` ficou enganado — não há esse texto na DOM.
+
+**Como detectar:** se vai assertar texto na UI, primeiro
+`grep -rn 'TEXTO' ui/src/components/` — se não tiver match (só em
+`lib/format.ts`), é orfão. Valide via API (`/api/sessions`) no E2E.
+
+**Fix pendente** (fora de escopo F5): ou re-incluir o status num
+`TaskCard` quando `task.active_session_id`, ou remover `format.ts`
+completo. Decisão de produto.
