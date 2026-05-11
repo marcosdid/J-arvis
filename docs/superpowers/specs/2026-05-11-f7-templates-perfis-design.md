@@ -24,7 +24,7 @@ com perfil pré-aprovado. Catálogo, perfil aplicado no spawn." Encerra o MVP.
 | 3 | **Catálogo é YAML curado em `orchestrator/config/catalog.yml`** | Match perfeito com "pré-aprovado" do roadmap. Sem migração nova, sem CRUD, sem UI de admin. Editar = commit. |
 | 4 | **UI entry point único: dropdown "Template" no form de criar task** | Sem override no session start. Sem edit pós-create. Mantém Kanban/sessões simples. |
 | 5 | **Catálogo: 3 perfis (`yolo`, `default`, `read-only`) + 4 templates + fallback `yolo`** | `yolo` mantém comportamento atual de F1-F6 pra tasks NULL. 3 perfis cobrem dev rápido, postura cuidadosa, e exploração. |
-| 6 | **Snapshot-at-create**: `Task.permission_profile` é gravado no POST, não relido do catálogo no spawn | Catálogo editado depois não muda comportamento de tasks existentes. Importante pra reprodutibilidade. |
+| 6 | **Snapshot-at-create do nome do perfil** (não dos args): `Task.permission_profile` grava só o nome (string). No spawn, o nome é re-resolvido no catálogo carregado em `app.state.catalog` pra extrair `claude_args`. Se admin editar `claude_args` de um perfil existente e **reiniciar o daemon**, tasks existentes verão o args novo na próxima sessão; se admin remover o perfil (e reiniciar), tasks existentes recebem 422 (decisão 7). | Snapshot do nome (não dos args) preserva reprodutibilidade de qual perfil foi escolhido (audit trail), mas evita carregar args duplicados em milhares de rows. Admin sabe que editar `claude_args` é alteração propagante após restart. |
 | 7 | **Hard fail no spawn se perfil sumiu do catálogo**: 422 com detalhe | Fere o contrato "pré-aprovado" silenciosamente. Melhor falhar e fazer admin restaurar ou usuário recriar a task. |
 
 ## 3. Conteúdo do catálogo
@@ -85,7 +85,7 @@ class TemplateSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     description: str
     default_permission_profile: str
-    branch_prefix: str = Field(pattern=r"^[a-z][a-z0-9-]*/$")
+    branch_prefix: str = Field(pattern=r"^[a-z][a-z0-9-]*/$")  # single-segment only (uma `/` no fim)
 
 class Catalog(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -114,8 +114,18 @@ def load_catalog(path: Path) -> Catalog:
     CatalogValidationError se inválido."""
 ```
 
+**Lifecycle:** `load_catalog()` é chamado **exatamente uma vez** no `lifespan`
+do FastAPI (`orchestrator/main.py:create_app`), guardado em `app.state.catalog`,
+e **nunca recarregado** durante o uptime do daemon. Editar `catalog.yml` em
+runtime não tem efeito até restart. Isso é intencional — match com semântica
+de "pré-aprovado" (catálogo é estável durante a vida do daemon).
+
 Validação no startup: daemon recusa subir se `catalog.yml` inválido. Catalog é
 load-bearing — fail fast é correto.
+
+**Validação de nomes:** chaves de `permission_profiles` e `templates` devem bater
+regex `^[a-z][a-z0-9-]*$` (mesma do `branch_prefix` sem a `/` final). Pydantic
+validator adicional no `Catalog.model_validator(mode="after")`.
 
 ## 5. Schema do banco
 
@@ -166,6 +176,8 @@ class TaskCreatePayload(BaseModel):
 **Server-side resolution** em `create_task`:
 
 ```python
+from orchestrator.core.slug import slugify_for_branch, InvalidBranchSlugError
+
 async def create_task(db, *, project_id, title, description, branch, template, catalog):
     if template is not None:
         if template not in catalog.templates:
@@ -173,39 +185,73 @@ async def create_task(db, *, project_id, title, description, branch, template, c
         tspec = catalog.templates[template]
         permission_profile = tspec.default_permission_profile
         if branch is None:
-            branch = f"{tspec.branch_prefix}{slugify(title)}"
+            # slugify_for_branch já é usado em start_session (F1+); raise
+            # InvalidBranchSlugError pra title impossível (ex.: "!!!").
+            branch = f"{tspec.branch_prefix}{slugify_for_branch(title)}"
     else:
         permission_profile = None
     # ... resto idêntico a F4
 ```
 
+**Slugify contract.** Backend usa `orchestrator/core/slug.py:slugify_for_branch`
+(já existe, usado em `start_session` desde F1). Frontend usa
+`ui/src/lib/slug.ts` (já existe). O módulo backend tem comentário explícito:
+*"NB: this function MUST stay in 1:1 sync with ui/src/lib/slug.ts"*. F7 não
+introduz slugify novo — só consome ambos. Lambda branch_prefix + slugify do
+title é simples concatenação de string.
+
 Comportamento:
 - `template=None`: NULL/NULL (back compat F4-F6)
 - `template="frontend"`, `branch=None`: `template="frontend"`, `permission_profile="yolo"`, `branch="feat-ui/<slug>"`
-- `template="frontend"`, `branch="custom"`: `template="frontend"`, `permission_profile="yolo"`, `branch="custom"` (override respeitado, prefix ignorado)
-- `template="inexistente"`: 422 `template_not_in_catalog`
+- `template="frontend"`, `branch="custom"`: `template="frontend"`, `permission_profile="yolo"`, `branch="custom"` (override **literal**, prefix nunca aplicado mesmo se "custom" começar com "feat-ui/")
+- `template="frontend"`, `branch=None`, `title="!!!"`: `InvalidBranchSlugError` → 422 (mesmo path que F1+ usa hoje quando título degenerado)
+- `template="inexistente"`: 422 `template_not_in_catalog` com `detail.valid_templates: [...]`
 
 ## 7. Spawn integration
 
 ### `write_aijail_config` (aijail.py)
 
-Hoje:
+Assinatura atual (`aijail.py:61`):
+
 ```python
-'command = ["claude", "--dangerously-skip-permissions"]\n'
+def write_aijail_config(cwd: Path) -> None:
+    git_dirs = _discover_git_dirs(cwd)
+    rw_lines = ",\n".join(f'    "{p}"' for p in git_dirs)
+    rw_block = f"[\n{rw_lines},\n]" if git_dirs else "[]"
+    (cwd / ".ai-jail").write_text(
+        'command = ["claude", "--dangerously-skip-permissions"]\n'
+        f"rw_maps = {rw_block}\n"
+        'ro_maps = []\n'
+        'hide_dotdirs = []\n'
+        'mask = []\n'
+        'allow_tcp_ports = []\n'
+    )
 ```
 
-F7:
+F7 muda **apenas a linha `command`** — `rw_maps`/`ro_maps`/`hide_dotdirs`/`mask`/`allow_tcp_ports`
+seguem idênticos. Nova assinatura:
+
 ```python
 def write_aijail_config(cwd: Path, *, claude_args: list[str]) -> None:
-    """`claude_args` é o claude_args do perfil resolvido (caller responsibility)."""
+    """`claude_args` vem resolvido do perfil de permissão da task (caller
+    responsibility). `claude_args=[]` produz `command = ["claude"]` (perfil
+    `default`)."""
+    git_dirs = _discover_git_dirs(cwd)
+    rw_lines = ",\n".join(f'    "{p}"' for p in git_dirs)
+    rw_block = f"[\n{rw_lines},\n]" if git_dirs else "[]"
     full_argv = ["claude", *claude_args]
     args_json = json.dumps(full_argv)
     (cwd / ".ai-jail").write_text(
         f"command = {args_json}\n"
         f"rw_maps = {rw_block}\n"
-        ...
+        'ro_maps = []\n'
+        'hide_dotdirs = []\n'
+        'mask = []\n'
+        'allow_tcp_ports = []\n'
     )
 ```
+
+Resto da função (corpo `_discover_git_dirs` etc.) inalterado.
 
 ### `AiJailRuntime.spawn`
 
@@ -235,17 +281,58 @@ async def spawn(
     # ... resto idêntico
 ```
 
-### `SessionRuntime` Protocol
+### `SessionRuntime` Protocol — breaking change
 
-Ganha `permission_profile: str | None` + `catalog: Catalog` nos kwargs de `spawn`.
-`NullSessionRuntime` (test fake) aceita e ignora. Só `AiJailRuntime` consome.
+```python
+class SessionRuntime(Protocol):
+    async def spawn(
+        self,
+        worktree: Path,
+        *,
+        permission_profile: str | None,  # NEW — required kwarg, sem default
+        catalog: Catalog,                # NEW — required kwarg, sem default
+        token: str | None = None,
+        base_url: str | None = None,
+    ) -> JailHandle: ...
+```
+
+Os dois novos kwargs são **obrigatórios** (sem default). Razão: spawn não
+tem como adivinhar `catalog` (precisa do DI parent) — passar como required
+força call sites a serem explícitos e os erros aparecem no import/type-check,
+não em runtime.
+
+**Callers enumerados (grepped):**
+
+| Caller | Como passa novos kwargs |
+|---|---|
+| `orchestrator/core/sessions.py:start_session` (linha 196) | `permission_profile=task.permission_profile, catalog=catalog` (catalog vem via param do start_session) |
+| `orchestrator/api/bootstrap.py:60` (F6 bootstrap session) | `permission_profile=None, catalog=catalog` — bootstrap é efêmero, usa fallback do catálogo |
+| `tests/unit/test_null_runtime.py` (3 chamadas) | `permission_profile=None, catalog=_test_catalog_fixture` — fixture mínima |
+| `tests/unit/test_session_start_atomic.py` | mesmo |
+| `tests/integration/test_bootstrap_endpoint.py` | já usa FakeSessionRuntime; fixture aceita novos kwargs |
+
+`NullSessionRuntime` (test fake): aceita os novos kwargs e ignora — sem comportamento real. `AiJailRuntime`: consome ambos (descrito acima).
 
 ### `start_session`
 
-`orchestrator/core/sessions.start_session` recebe `catalog` via DI e passa adiante
-no `runtime.spawn(...)`. Mesmo padrão de `git_ops`/`docker_ops`/`port_allocator`.
+```python
+# orchestrator/core/sessions.py — current line 196
+handle = await runtime.spawn(cwd, token=token, base_url=base_url)
+# F7 →
+handle = await runtime.spawn(
+    cwd,
+    permission_profile=task.permission_profile,
+    catalog=catalog,
+    token=token,
+    base_url=base_url,
+)
+```
 
-API: `POST /api/tasks/{id}/sessions` ganha `Depends(resolve_catalog)`.
+`start_session` recebe `catalog: Catalog` como param (vem do `Depends(resolve_catalog)`
+na rota API). Mesmo padrão de `git_ops`/`docker_ops`/`port_allocator`.
+
+API: `POST /api/tasks/{id}/sessions` ganha `Depends(resolve_catalog)`. Bootstrap
+endpoint (F6) também ganha; passa adiante na chamada `runtime.spawn`.
 
 ### Erro path
 
@@ -288,8 +375,8 @@ Dois chips quando template/permission_profile não-NULL:
 
 - `<span data-template-name="bugfix">bugfix</span>`
 - `<span data-permission-profile="yolo">yolo</span>`
-- Cores por perfil: yolo=amarelo, default=cinza, read-only=verde
-- Tooltip on hover com `description` do catálogo
+- Cores conhecidas: `yolo=amarelo`, `default=cinza`, `read-only=verde`. Perfis fora dessa lista (futuro admin adicionou no YAML) → fallback **cinza**.
+- Tooltip on hover com `description` do catálogo (texto verbatim do YAML — sem i18n, sem truncação)
 
 ### `TaskDetailModal`
 
@@ -321,9 +408,22 @@ export function useCatalog() {
 
 ### Backend integration (tests/integration/)
 
-- `test_api_catalog.py`: GET /api/catalog retorna 200 + estrutura completa; sem auth required
-- `test_api_tasks_template.py`: POST com template=frontend → 201 com permission_profile=yolo + branch=feat-ui/<slug>; POST com template=inexistente → 422 template_not_in_catalog com lista de válidos; POST sem template → 201 com NULL/NULL
-- `test_sessions_uses_profile.py`: criar task com template=read-only, start_session, verificar via FakeProcessOps que `.ai-jail` tem `command = ["claude", "--permission-mode", "plan", "--allowed-tools", "Read,Grep,Glob,LS"]`
+- `test_api_catalog.py`:
+  - GET /api/catalog retorna 200 + estrutura completa
+  - Shape pinning: response tem `permission_profiles` e `templates` como **listas** com `name` adicionado (não dicts), ordem alfabética
+  - Sem auth required
+- `test_api_tasks_template.py`:
+  - POST com template=frontend → 201 com `permission_profile=yolo` + `branch=feat-ui/<slug>`
+  - POST com template=inexistente → 422 `template_not_in_catalog` com `detail.valid_templates=[...]`
+  - POST sem template → 201 com NULL/NULL (back compat)
+  - POST com template + branch="custom" → respeita branch literal, prefix ignorado
+  - POST com template + title degenerado ("!!!") → 422 `InvalidBranchSlugError`
+  - **Branch collision**: POST com template=frontend dois títulos que slugificam pro mesmo branch — segundo não falha aqui (task aceita); start_session é quem retorna `CwdAlreadyExistsError` ao tentar criar worktree (já testado em F5; aqui só verifica que POST aceita branches duplicados)
+- `test_sessions_uses_profile.py`:
+  - Criar task com template=read-only, start_session, verificar via observador no FakeProcessOps que `.ai-jail` tem `command = ["claude", "--permission-mode", "plan", "--allowed-tools", "Read,Grep,Glob,LS"]`
+  - **Back-compat NULL**: criar task SEM template (`permission_profile=NULL`), start_session, verificar `.ai-jail` tem `command = ["claude", "--dangerously-skip-permissions"]` (fallback=yolo idêntico ao hardcoded F1-F6)
+  - **422 stale profile**: criar task com `permission_profile="yolo"`, mockar `app.state.catalog` com catálogo SEM `yolo`, tentar start_session → 422 `permission_profile_not_in_catalog` com mensagem citando `'yolo'` e instrução "edite a task ou restaure o perfil"
+  - **Bootstrap**: F6 bootstrap session usa `permission_profile=None` → resolve via fallback do catálogo, escreve `.ai-jail` correspondente
 
 ### UI (ui/src/**/*.test.{ts,tsx})
 
