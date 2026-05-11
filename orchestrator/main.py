@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
+from orchestrator.api.bootstrap import router as bootstrap_router
 from orchestrator.api.projects import router as projects_router
 from orchestrator.api.runs import run_router
 from orchestrator.api.runs import task_router as runs_task_router
@@ -71,6 +72,7 @@ def create_app(
         app.include_router(run_router, prefix="/api")
         if runtime is not None:
             app.include_router(sessions_router, prefix="/api")
+            app.include_router(bootstrap_router, prefix="/api")
         app.include_router(hooks_router, prefix="/api")
         app.include_router(ws_router)
 
