@@ -199,4 +199,60 @@ describe('api', () => {
       'feature/foo',
     ]);
   });
+
+  // === F6 — Run from Panel endpoints ========================================
+
+  it('startRun: POST /api/tasks/{id}/runs with empty body', async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 'r1' }, 201));
+    await api.startRun('t1');
+    const call = fetchSpy.mock.calls[0]!;
+    expect(call[0]).toBe('/api/tasks/t1/runs');
+    expect(call[1].method).toBe('POST');
+    expect(JSON.parse(call[1].body)).toEqual({});
+  });
+
+  it('getActiveRun: GET /api/tasks/{id}/run', async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 'r1', status: 'ready' }));
+    const run = await api.getActiveRun('t1');
+    expect(fetchSpy).toHaveBeenCalledWith('/api/tasks/t1/run', expect.any(Object));
+    expect(run.status).toBe('ready');
+  });
+
+  it('stopRun: POST /api/runs/{id}/stop returns void on 204', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const result = await api.stopRun('r1');
+    expect(result).toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/runs/r1/stop',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('bootstrapManifest: POST /api/tasks/{id}/bootstrap-manifest', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      jsonResponse({ session_id: 'abc', cwd: '/p' }, 202),
+    );
+    const r = await api.bootstrapManifest('t1');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/tasks/t1/bootstrap-manifest',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(r.session_id).toBe('abc');
+    expect(r.cwd).toBe('/p');
+  });
+
+  it('types: Run/ServiceStatus/BootstrapSession compile', () => {
+    const svc: import('./api').ServiceStatus = {
+      name: 'backend', state: 'ready', port_host: 31101,
+      port_container: 8000, container_id: 'cid1', error: null,
+    };
+    const run: import('./api').Run = {
+      id: 'r1', task_id: 't1', cwd: '/c', manifest_path: '/m',
+      status: 'ready', services: [svc],
+      network_name: 'jarvis-run-abc',
+      started_at: '2026-01-01T00:00:00Z', ended_at: null, error_message: null,
+    };
+    const bs: import('./api').BootstrapSession = { session_id: 'abc', cwd: '/p' };
+    expect([run.services[0]?.port_host, bs.cwd]).toEqual([31101, '/p']);
+  });
 });

@@ -33,6 +33,33 @@ export type Session = {
   ended_at: string | null;
 };
 
+export type ServiceStatus = {
+  name: string;
+  state: 'pending' | 'building' | 'seeding' | 'ready' | 'failed' | 'stopping' | 'stopped';
+  port_host: number | null;
+  port_container: number | null;
+  container_id: string | null;
+  error: string | null;
+};
+
+export type Run = {
+  id: string;
+  task_id: string;
+  cwd: string;
+  manifest_path: string;
+  status: 'pending' | 'building' | 'seeding' | 'ready' | 'failed' | 'stopping' | 'stopped';
+  services: ServiceStatus[];
+  network_name: string;
+  started_at: string;
+  ended_at: string | null;
+  error_message: string | null;
+};
+
+export type BootstrapSession = {
+  session_id: string;
+  cwd: string;
+};
+
 export type Task = {
   id: string;
   project_id: string;
@@ -112,4 +139,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+  // F6 — Run from Panel
+  startRun: (taskId: string) =>
+    http<Run>(`/tasks/${encodeURIComponent(taskId)}/runs`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  getActiveRun: (taskId: string) =>
+    http<Run>(`/tasks/${encodeURIComponent(taskId)}/run`),
+  stopRun: (runId: string) =>
+    http<void>(`/runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' }),
+  bootstrapManifest: (taskId: string) =>
+    http<BootstrapSession>(
+      `/tasks/${encodeURIComponent(taskId)}/bootstrap-manifest`,
+      { method: 'POST' },
+    ),
 };

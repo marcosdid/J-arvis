@@ -40,6 +40,39 @@ export type WsEvent =
       payload: {
         project_id: string; worktree_id: string; path: string; reason: string;
       }; at: string;
+    }
+  | {
+      type: 'run.status'; session_id: ''; task_id: string;
+      payload: {
+        run_id: string;
+        status:
+          | 'pending' | 'building' | 'seeding' | 'ready'
+          | 'failed' | 'stopping' | 'stopped';
+        services: Array<{
+          name: string;
+          state: string;
+          port_host: number | null;
+          port_container: number | null;
+          container_id: string | null;
+          error: string | null;
+        }>;
+      }; at: string;
+    }
+  | {
+      type: 'run.failed'; session_id: ''; task_id: string;
+      payload: { run_id: string; service: string | null; error: string };
+      at: string;
+    }
+  | {
+      type: 'run.stopped'; session_id: ''; task_id: string;
+      payload: {
+        run_id: string;
+        reason: 'manual' | 'session_stopped' | 'task_terminal';
+      }; at: string;
+    }
+  | {
+      type: 'bootstrap.proposed'; session_id: ''; task_id: null;
+      payload: { manifest_text: string }; at: string;
     };
 
 export type WsHandlers = {

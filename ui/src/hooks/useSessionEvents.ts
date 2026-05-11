@@ -46,6 +46,30 @@ export function useSessionEvents(
             emitToast(`Worktree não pôde ser removida: ${e.payload.path}`);
           }
         },
+        'run.status': (e) => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.run(e.task_id),
+          });
+        },
+        'run.failed': (e) => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.run(e.task_id),
+          });
+          if (emitToast) {
+            const svc = e.payload.service ? ` (${e.payload.service})` : '';
+            emitToast(`Run falhou${svc}: ${e.payload.error}`);
+          }
+        },
+        'run.stopped': (e) => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.run(e.task_id),
+          });
+        },
+        'bootstrap.proposed': () => {
+          if (emitToast) {
+            emitToast('Manifesto pronto. Tente Run de novo.');
+          }
+        },
       });
     });
     return () => conn.disconnect();

@@ -135,4 +135,90 @@ describe('useSessionEvents', () => {
     }).not.toThrow();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.worktrees('p1') });
   });
+
+  it('run.status invalidates queryKeys.run(task_id)', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({
+      type: 'run.status', session_id: '', task_id: 't1',
+      payload: { run_id: 'r1', status: 'ready', services: [] }, at: '',
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.run('t1') });
+  });
+
+  it('run.failed invalidates + emits toast with service name', () => {
+    const qc = new QueryClient();
+    const toast = vi.fn();
+    renderHook(() => useSessionEvents(qc, toast));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({
+      type: 'run.failed', session_id: '', task_id: 't1',
+      payload: { run_id: 'r1', service: 'backend', error: 'oops' }, at: '',
+    });
+    expect(toast).toHaveBeenCalledWith('Run falhou (backend): oops');
+  });
+
+  it('run.failed without service emits toast without parens', () => {
+    const qc = new QueryClient();
+    const toast = vi.fn();
+    renderHook(() => useSessionEvents(qc, toast));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({
+      type: 'run.failed', session_id: '', task_id: 't1',
+      payload: { run_id: 'r1', service: null, error: 'network create failed' }, at: '',
+    });
+    expect(toast).toHaveBeenCalledWith('Run falhou: network create failed');
+  });
+
+  it('run.failed without emitToast just invalidates', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    expect(() => {
+      onEvent({
+        type: 'run.failed', session_id: '', task_id: 't1',
+        payload: { run_id: 'r1', service: null, error: 'x' }, at: '',
+      });
+    }).not.toThrow();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.run('t1') });
+  });
+
+  it('run.stopped invalidates queryKeys.run(task_id)', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({
+      type: 'run.stopped', session_id: '', task_id: 't1',
+      payload: { run_id: 'r1', reason: 'manual' }, at: '',
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.run('t1') });
+  });
+
+  it('bootstrap.proposed emits toast about manifest ready', () => {
+    const qc = new QueryClient();
+    const toast = vi.fn();
+    renderHook(() => useSessionEvents(qc, toast));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({
+      type: 'bootstrap.proposed', session_id: '', task_id: null,
+      payload: { manifest_text: 'version: "1"' }, at: '',
+    });
+    expect(toast).toHaveBeenCalledWith('Manifesto pronto. Tente Run de novo.');
+  });
+
+  it('bootstrap.proposed without emitToast is no-op', () => {
+    const qc = new QueryClient();
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    expect(() => {
+      onEvent({
+        type: 'bootstrap.proposed', session_id: '', task_id: null,
+        payload: { manifest_text: '' }, at: '',
+      });
+    }).not.toThrow();
+  });
 });

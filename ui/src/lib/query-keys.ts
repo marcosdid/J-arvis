@@ -5,4 +5,5 @@ export const queryKeys = {
   tasks: ['tasks'] as const,
   tasksForProject: (projectId: string) => ['tasks', { projectId }] as const,
   task: (taskId: string) => ['tasks', { id: taskId }] as const,
+  run: (taskId: string) => ['runs', { taskId }] as const,
 };
