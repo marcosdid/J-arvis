@@ -23,7 +23,7 @@ async def test_get_catalog_returns_full_structure(
     assert isinstance(body["permission_profiles"], list)
     assert isinstance(body["templates"], list)
     profile_names = [p["name"] for p in body["permission_profiles"]]
-    assert profile_names == sorted(profile_names)  # ordem alfabética
+    assert profile_names == sorted(profile_names)
     assert set(profile_names) == {"yolo", "default", "read-only"}
     template_names = [t["name"] for t in body["templates"]]
     assert set(template_names) == {"frontend", "backend", "refactor", "bugfix"}
