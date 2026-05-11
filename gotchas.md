@@ -335,3 +335,24 @@ foi corrigido pra usar `inner = ["ai-jail"]` e **escrever
 
 **Descoberto:** F5.0 spike no host (esta gotcha + #15 explicam por
 que o spike só roda de fora da jaula).
+
+## 17. `ai-jail` v0.10 deixa localhost passar mesmo com `allow_tcp_ports = []`
+
+**Regra:** ao contrário do que o nome sugere, `allow_tcp_ports` em
+`.ai-jail` v0.10 **não** restringe acesso a `127.0.0.1` / `localhost`
+do host. Loopback continua acessível por default; o campo serve só
+pra permitir conexões a IPs externos (ou non-loopback).
+
+**Como detectar:** spike F6.0 — config com `allow_tcp_ports = []` e
+`bash -c "curl http://localhost:31100"` retornou HTML normalmente,
+mesmo com `Landlock: fully enforced`.
+
+**Implicação prática:** ao implementar F6, **não é necessário**
+estender `write_aijail_config()` com `extra_tcp_ports` pra deixar
+a sessão Claude acessar containers Docker expostos em
+`localhost:31xxx`. O default já funciona. Reduz superfície (1 PFC
+do plano F6 vira no-op).
+
+Se um dia o campo for usado pra liberar IPs não-loopback (e.g.,
+DB remoto), aí sim entra no jogo. Pro caso "Docker no host expondo
+em localhost", default é OK.
