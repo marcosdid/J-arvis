@@ -7,6 +7,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from orchestrator.api.projects import router as projects_router
+from orchestrator.api.runs import run_router
+from orchestrator.api.runs import task_router as runs_task_router
 from orchestrator.api.sessions import router as sessions_router
 from orchestrator.api.tasks import router as tasks_router
 from orchestrator.api.worktrees import router as worktrees_router
@@ -15,6 +17,7 @@ from orchestrator.api.ws import router as ws_router
 from orchestrator.config import RuntimeMode, Settings
 from orchestrator.core.git import SubprocessGitWorktreeOps
 from orchestrator.core.health import health_status
+from orchestrator.core.port_allocator import PortAllocator
 from orchestrator.events.broadcaster import InMemoryWsBroadcaster
 from orchestrator.hooks.router import router as hooks_router
 from orchestrator.hooks.tokens import TokenRegistry
@@ -25,6 +28,7 @@ from orchestrator.sandbox.aijail import (
     SubprocessProcessOps,
     detect_terminal,
 )
+from orchestrator.sandbox.docker_ops import SubprocessDockerOps
 from orchestrator.sandbox.null import NullSessionRuntime
 from orchestrator.sandbox.runtime import SessionRuntime
 from orchestrator.store.database import Database
@@ -49,6 +53,10 @@ def create_app(
     app.state.notifier = getattr(app.state, "notifier", None)
     app.state.hook_base_url = getattr(app.state, "hook_base_url", None)
     app.state.git_ops = getattr(app.state, "git_ops", None) or SubprocessGitWorktreeOps()
+    app.state.docker_ops = getattr(app.state, "docker_ops", None) or SubprocessDockerOps()
+    app.state.port_allocator = (
+        getattr(app.state, "port_allocator", None) or PortAllocator()
+    )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -59,6 +67,8 @@ def create_app(
         app.include_router(worktrees_router, prefix="/api")
         app.include_router(worktree_router, prefix="/api")
         app.include_router(tasks_router, prefix="/api")
+        app.include_router(runs_task_router, prefix="/api")
+        app.include_router(run_router, prefix="/api")
         if runtime is not None:
             app.include_router(sessions_router, prefix="/api")
         app.include_router(hooks_router, prefix="/api")

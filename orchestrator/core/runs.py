@@ -14,6 +14,7 @@ como `RunAlreadyActiveError`. Não usamos asyncio.Lock por-task; o DB
 constraint é suficiente pro modelo single-daemon single-DB.
 """
 import asyncio
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -33,6 +34,8 @@ from orchestrator.core.manifest import (
     resolve_substitutions,
 )
 from orchestrator.core.port_allocator import PortAllocator
+from orchestrator.core.slug import slugify_for_branch
+from orchestrator.core.worktrees import list_worktrees_for_task
 from orchestrator.events.broadcaster import WsBroadcaster
 from orchestrator.events.envelope import WsEvent
 from orchestrator.sandbox.docker_ops import (
@@ -40,7 +43,7 @@ from orchestrator.sandbox.docker_ops import (
     DockerError,
     DockerOps,
 )
-from orchestrator.store.models import RunInstance, Task
+from orchestrator.store.models import Project, RunInstance, Task
 
 _log = logging.getLogger(__name__)
 
@@ -502,11 +505,62 @@ async def stop_run(
     ))
 
 
+async def derive_run_cwd(db: AsyncSession, task: Task) -> Path:
+    """cwd da run = cwd da sessão ativa (se houver) OU derivado do
+    project.path + branch slug (mesmo cálculo de F5)."""
+    worktrees = await list_worktrees_for_task(db, task.id)
+    if worktrees:
+        if len(worktrees) == 1:
+            return Path(worktrees[0].path)
+        return Path(worktrees[0].path).parent
+    project = await db.get(Project, task.project_id)
+    if project is None:  # pragma: no cover — FK should prevent
+        raise TaskNotEligibleForRunError(f"project not found for task {task.id}")
+    branch = task.branch or slugify_for_branch(task.title)
+    p = Path(project.path)
+    return p.parent / f"{p.name}--{branch}"
+
+
+async def cleanup_orphan_runs_at_startup(
+    db: AsyncSession, docker: DockerOps, port_allocator: PortAllocator,
+) -> None:
+    """Na inicialização do daemon, marca todas runs com `ended_at IS NULL`
+    como `stopped` e tenta limpar containers/network/ports.
+
+    Container Docker pode ter sobrevivido ao restart; best-effort kill+rm.
+    Network bridge orphan: rm best-effort. Ports: liberar do allocator
+    (não estavam reservadas porque é instância nova; mas registramos
+    pra prevenir realocação).
+    """
+    result = await db.execute(
+        select(RunInstance).where(RunInstance.ended_at.is_(None))
+    )
+    runs = result.scalars().all()
+    for run in runs:
+        containers = json.loads(run.containers_json or "{}")
+        for cid in containers.values():
+            with contextlib.suppress(DockerError):
+                await docker.stop(cid, force=True)
+            with contextlib.suppress(DockerError):
+                await docker.rm(cid)
+        with contextlib.suppress(DockerError):
+            await docker.network_rm(run.network_name)
+        ports = json.loads(run.ports_json or "{}")
+        for port in ports.values():
+            await port_allocator.release(port)
+        run.status = "stopped"
+        run.ended_at = _now()
+        run.error_message = "orphaned by daemon restart"
+    await db.commit()
+
+
 __all__ = [
     "RunAlreadyActiveError",
     "RunStartError",
     "StopReason",
     "TaskNotEligibleForRunError",
+    "cleanup_orphan_runs_at_startup",
+    "derive_run_cwd",
     "get_active_run",
     "start_run",
     "stop_run",

@@ -5,9 +5,11 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from orchestrator.core.git import GitWorktreeOps
+from orchestrator.core.port_allocator import PortAllocator
 from orchestrator.events.broadcaster import WsBroadcaster
 from orchestrator.hooks.tokens import TokenRegistry
 from orchestrator.notifications.sink import NotifierSink
+from orchestrator.sandbox.docker_ops import DockerOps
 from orchestrator.sandbox.runtime import SessionRuntime
 from orchestrator.store.database import Database
 
@@ -59,3 +61,17 @@ def resolve_git_ops(request: Request) -> GitWorktreeOps:
     if git is None:  # pragma: no cover
         raise RuntimeError("git_ops not configured in app.state")
     return git
+
+
+def resolve_docker_ops(request: Request) -> "DockerOps":
+    docker: DockerOps | None = request.app.state.docker_ops
+    if docker is None:  # pragma: no cover
+        raise RuntimeError("docker_ops not configured in app.state")
+    return docker
+
+
+def resolve_port_allocator(request: Request) -> "PortAllocator":
+    alloc: PortAllocator | None = request.app.state.port_allocator
+    if alloc is None:  # pragma: no cover
+        raise RuntimeError("port_allocator not configured in app.state")
+    return alloc
