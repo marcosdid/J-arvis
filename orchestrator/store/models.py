@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -98,3 +98,47 @@ class ClaudeSession(Base):
     ended_at: Mapped[datetime | None] = mapped_column(nullable=True)
     hook_token: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
     last_hook_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class RunInstance(Base):
+    """One stack (db + services) brought up by F6 Run from Panel.
+
+    Paralelo conceitual a ``ClaudeSession``: 1 RunInstance ativa por task
+    (partial unique index ``ix_run_instances_active_task`` em ``task_id``
+    WHERE ``ended_at IS NULL``). Cleanup quando task vira ``done``/``discarded``
+    ou quando user clica Stop.
+
+    ``ports_json``/``containers_json`` são JSON serializado (SQLite não tem
+    tipo nativo). Schema esperado:
+      ports_json: ``{"<service_name>": <host_port>, ...}``
+      containers_json: ``{"<service_name>": "<docker_container_id>", ...}``
+    """
+
+    __tablename__ = "run_instances"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    task_id: Mapped[str] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
+    )
+    cwd: Mapped[str] = mapped_column(String(1024), nullable=False)
+    manifest_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    ports_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    containers_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    network_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text(), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_run_instances_active_task",
+            "task_id",
+            unique=True,
+            sqlite_where=text("ended_at IS NULL"),
+        ),
+    )
