@@ -29,3 +29,6 @@ Registro de decisões arquiteturais. Estilo Michael Nygard.
 | [0012](0012-task-como-entidade-primaria.md) | Task como entidade primária; Session é filha obrigatória | Accepted | 2026-05-09 |
 | [0013](0013-kanban-unificado-cross-project.md) | Kanban unificado cross-project com filtros multi-select | Accepted | 2026-05-09 |
 | [0014](0014-envelope-ws-task-id-opcional.md) | Envelope WS com `task_id` opcional (emenda aditiva ao ADR-0010) | Accepted | 2026-05-09 |
+| [0015](0015-project-multi-repo-com-auto-detect.md) | Project multi-repo com auto-detect de sub-repos via `Repository` | Accepted | 2026-05-11 |
+| [0016](0016-multi-repo-1-sessao-cwd-shared.md) | Multi-repo: 1 sessão Claude com `cwd` compartilhado entre sub-worktrees | Accepted | 2026-05-11 |
+| [0017](0017-worktree-detalhe-da-task-sem-create-ui.md) | Worktree é detalhe da task; sem UI de create/destroy avulsa | Accepted | 2026-05-11 |

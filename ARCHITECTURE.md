@@ -39,12 +39,22 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
 ## 3. Modelo de dados (SQLite)
 
 - `Project(id, name, path, created_at)`
-- `Worktree(id, project_id, path, branch, current_task_id?)`
-- `Task(id, project_id, title, description, state, template?, permission_profile?, created_at, updated_at)`
+- `Repository(id, project_id, name, sub_path, created_at)` *(F5)*
+  - `UNIQUE(project_id, sub_path)`. Auto-detectado no `POST /api/projects` —
+    monorepo gera 1 row com `sub_path="."`; multi-repo gera N rows (1 por
+    sub-dir com `.git`). Ver [ADR-0015](docs/adr/0015-project-multi-repo-com-auto-detect.md).
+- `Worktree(id, repository_id, task_id?, path, branch)` *(F5)*
+  - `task_id NULL` = órfã (criada externamente via terminal). UI mostra
+    sob sub-tree "órfãs" com botão `✕`. Ver [ADR-0017](docs/adr/0017-worktree-detalhe-da-task-sem-create-ui.md).
+- `Task(id, project_id, title, description, state, branch?, template?, permission_profile?, created_at, updated_at)`
   - `state ∈ {idea, ready, in_progress, review, done, discarded}`
+  - `branch` (F5): opcional. Vazio → daemon usa `slugify_for_branch(title)`.
+    Imutável após 1ª sessão (422).
   - `template`/`permission_profile` populados em F7. F4 deixa `NULL`.
-- `ClaudeSession(id, task_id, worktree_id, jail_id, status, pid, started_at, ended_at?, transcript_path)`
+- `ClaudeSession(id, task_id, cwd, jail_id, status, pid, started_at, ended_at?, transcript_path)`
   - Classe nomeada `ClaudeSession` para não colidir com `sqlalchemy.orm.Session`/`AsyncSession`. Tabela `sessions`.
+  - `cwd` (F5) substitui `worktree_id` da F1/F4: pra multi-repo `cwd` é o
+    diretório-pai que contém N worktrees. Ver [ADR-0016](docs/adr/0016-multi-repo-1-sessao-cwd-shared.md).
   - `status ∈ {executing, awaiting_response, idle, error, done}`
 - `RunInstance(id, worktree_id, manifest_path, status, ports_json, started_at)`
   - `status ∈ {building, seeding, ready, failed, stopped}`
@@ -195,7 +205,7 @@ Cada fase termina demonstrável + verde nas três camadas.
 | **F2 — Status semântico via hooks** | Cards mostram `awaiting_response` / `idle` em tempo real | `/hooks/*`, parser de eventos, broadcast WS, `notify-send` |
 | ~~F3~~ | **Cancelada** — fundida em F2; ver [ADR-0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | — |
 | **F4 — Backlog kanban** ✅ | Kanban unificado cross-project; criar/mover/discardar tasks; iniciar sessão de uma task; quick session cria task implícita | `Task`, kanban UI 5 colunas com `@dnd-kit`, `Session.task_id` NOT NULL, drawer lateral pra projects/worktrees. F4.m fechou gate de cobertura (auto-marker em `tests/conftest.py`) |
-| **F5 — Mapa de worktrees** | Árvore visual por projeto; criar/destruir worktree pela UI | git ops, vinculação a tasks |
+| **F5 — Mapa de worktrees + multi-repo** ✅ | Drawer "Projetos & Worktrees": árvore task-grouped por projeto; multi-repo (1 task → N worktrees compartilham 1 sessão); worktrees auto-criadas ao iniciar sessão, auto-removidas em `done`/`discarded`; órfãs detectadas e removíveis | `Repository` model + auto-detect, `GitWorktreeOps`, `start_session` atomic 3-layer (FS+DB+WS), `task.branch` opcional, hard-break `POST /api/sessions {worktree_id}` |
 | **F6 — Run from Panel** | Botão ▶ Run sobe DB+back+front e abre URL | manifesto, bootstrap por Claude, alocação de portas, Docker descartável, lifecycle |
 | **F7 — Templates + perfis** | Templates frontend/backend/refactor/bugfix com perfil pré-aprovado | catálogo, perfil aplicado no spawn |
 | **F8 (v1.5)** — Planner meta-agente | Usuário cola épico → preview de subtasks → backlog | sessão efêmera, tela de preview, bulk insert |
@@ -234,3 +244,7 @@ criar novo ADR e atualizar `docs/adr/README.md`.**
 | F3 cancelada / fundida em F2 | [0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | Sem fila ativa, sem `ApprovalRequest`; `AWAITING_APPROVAL` removido do enum | Decisão de permissão fica no Claude Code (terminal nativo + `settings.json`); evita caminho paralelo |
 | Task como entidade primária | [0012](docs/adr/0012-task-como-entidade-primaria.md) | `Session.task_id` NOT NULL; quick session cria task implícita | Honra task-first do §1.2 |
 | Kanban unificado cross-project | [0013](docs/adr/0013-kanban-unificado-cross-project.md) | Single board com chip de projeto + filtros multi-select | Trabalho cross-project é o caso real |
+| Envelope WS com `task_id` opcional | [0014](docs/adr/0014-envelope-ws-task-id-opcional.md) | Campo opcional aditivo ao envelope F2 | UI invalida cache de tasks sem mapa próprio |
+| Project multi-repo com auto-detect | [0015](docs/adr/0015-project-multi-repo-com-auto-detect.md) | `Repository` entre `Project` e `Worktree`; scan de `.git` em depth 0/1 | Modela mono e multi-repo (gcb-hub) sem friction |
+| Multi-repo 1 sessão cwd shared | [0016](docs/adr/0016-multi-repo-1-sessao-cwd-shared.md) | `ClaudeSession.cwd` = dir-pai contendo N worktrees | Claude vê produto inteiro; preserva "1 session por task" |
+| Worktree é detalhe da task | [0017](docs/adr/0017-worktree-detalhe-da-task-sem-create-ui.md) | Sem UI/API de create avulsa; worktrees auto-gerenciadas pelo ciclo da task | Modelo mental coeso; zero lixo no disco |
