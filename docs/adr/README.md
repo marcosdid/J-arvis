@@ -35,3 +35,4 @@ Registro de decisões arquiteturais. Estilo Michael Nygard.
 | [0018](0018-run-instance-detalhe-da-task.md) | RunInstance é detalhe da task; 1 run ativa por task | Accepted | 2026-05-11 |
 | [0019](0019-manifest-services-dict-com-depends-on.md) | Manifesto F6 é `services:` dict com `depends_on` | Accepted | 2026-05-11 |
 | [0020](0020-bootstrap-via-sessao-claude-efemera.md) | Bootstrap de manifesto via sessão Claude efêmera + file watcher | Accepted | 2026-05-11 |
+| [0021](0021-catalog-yaml-curado-templates-perfis.md) | Catálogo YAML curado pra templates + perfis (F7) | Aceito | 2026-05-11 |
