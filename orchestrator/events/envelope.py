@@ -144,3 +144,65 @@ class WsEvent:
             task_id=None,
             payload={"worktree_id": worktree_id, "project_id": project_id, "path": path},
         )
+
+    # --- F6 Run from Panel ---------------------------------------------------
+
+    @classmethod
+    def run_status(
+        cls,
+        *,
+        task_id: str,
+        run_id: str,
+        status: str,
+        services: list[dict[str, Any]] | None = None,
+    ) -> "WsEvent":
+        return cls(
+            type="run.status",
+            session_id="",
+            task_id=task_id,
+            payload={
+                "run_id": run_id,
+                "status": status,
+                "services": services or [],
+            },
+        )
+
+    @classmethod
+    def run_failed(
+        cls,
+        *,
+        task_id: str,
+        run_id: str,
+        service: str | None,
+        error: str,
+    ) -> "WsEvent":
+        return cls(
+            type="run.failed",
+            session_id="",
+            task_id=task_id,
+            payload={"run_id": run_id, "service": service, "error": error},
+        )
+
+    @classmethod
+    def run_stopped(
+        cls,
+        *,
+        task_id: str,
+        run_id: str,
+        reason: str,
+    ) -> "WsEvent":
+        return cls(
+            type="run.stopped",
+            session_id="",
+            task_id=task_id,
+            payload={"run_id": run_id, "reason": reason},
+        )
+
+    @classmethod
+    def bootstrap_proposed(cls, *, manifest_text: str) -> "WsEvent":
+        return cls(
+            type="bootstrap.proposed",
+            session_id="",
+            task_id=None,
+            payload={"manifest_text": manifest_text},
+        )
