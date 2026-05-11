@@ -31,3 +31,26 @@ def pytest_collection_modifyitems(
         marker = _MARK_BY_DIR.get(first)
         if marker is not None:
             item.add_marker(marker)
+
+
+from orchestrator.core.catalog import Catalog, load_catalog
+
+
+_REPO_ROOT_FOR_CATALOG = Path(__file__).resolve().parents[1]
+_TEST_CATALOG: Catalog | None = None
+
+
+def _get_test_catalog() -> Catalog:
+    global _TEST_CATALOG
+    if _TEST_CATALOG is None:
+        _TEST_CATALOG = load_catalog(
+            _REPO_ROOT_FOR_CATALOG / "orchestrator" / "config" / "catalog.yml"
+        )
+    return _TEST_CATALOG
+
+
+@pytest.fixture
+def catalog() -> Catalog:
+    """Pytest fixture exposing the real catalog.yml for tests that call
+    `create_task` or `start_session` directly (bypassing the API DI)."""
+    return _get_test_catalog()
