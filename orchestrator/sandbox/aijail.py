@@ -6,6 +6,7 @@ emulator (per ADR-0008). Production wiring picks the terminal via
 all I/O boundaries.
 """
 
+import json
 import os
 import shutil
 import signal
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.sandbox.runtime import JailHandle
 from orchestrator.sandbox.settings_writer import (
     ensure_gitignore_entry,
@@ -58,18 +60,23 @@ def _discover_git_dirs(cwd: Path) -> list[Path]:
     return resolved
 
 
-def write_aijail_config(cwd: Path) -> None:
+def write_aijail_config(cwd: Path, *, claude_args: list[str]) -> None:
     """Write `<cwd>/.ai-jail` so `ai-jail` (no args) reads it on spawn.
 
-    `command` runs `claude --dangerously-skip-permissions`. `rw_maps` is
-    populated from `_discover_git_dirs(cwd)` so worktree `.git` pointers
-    resolve inside the sandbox. Overwrites any prior `.ai-jail`.
+    `claude_args` vem resolvido do perfil de permissão da task (caller
+    responsibility). `claude_args=[]` produz `command = ["claude"]`
+    (perfil `default`, Claude pergunta a cada tool). `rw_maps` é
+    populado por `_discover_git_dirs(cwd)` para que worktree `.git`
+    pointers resolvam dentro do sandbox. Sobrescreve qualquer
+    `.ai-jail` anterior.
     """
     git_dirs = _discover_git_dirs(cwd)
     rw_lines = ",\n".join(f'    "{p}"' for p in git_dirs)
     rw_block = f"[\n{rw_lines},\n]" if git_dirs else "[]"
+    full_argv = ["claude", *claude_args]
+    args_json = json.dumps(full_argv)
     (cwd / ".ai-jail").write_text(
-        'command = ["claude", "--dangerously-skip-permissions"]\n'
+        f"command = {args_json}\n"
         f"rw_maps = {rw_block}\n"
         "ro_maps = []\n"
         "hide_dotdirs = []\n"
@@ -109,6 +116,15 @@ _TERMINAL_PREFIXES: dict[str, list[str]] = {
 
 class NoTerminalFoundError(Exception):
     pass
+
+
+class PermissionProfileNotInCatalogError(Exception):
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            f"permission_profile {name!r} was removed from catalog.yml — "
+            f"edite a task ou restaure o perfil"
+        )
+        self.name = name
 
 
 class ProcessOps(Protocol):
@@ -158,13 +174,19 @@ class AiJailRuntime:
         self,
         worktree: Path,
         *,
+        permission_profile: str | None,
+        catalog: Catalog,
         token: str | None = None,
         base_url: str | None = None,
     ) -> JailHandle:
+        name = permission_profile or catalog.fallback_permission_profile
+        if name not in catalog.permission_profiles:
+            raise PermissionProfileNotInCatalogError(name)
+        claude_args = catalog.permission_profiles[name].claude_args
         if token is not None and base_url is not None:
             write_settings_into_jail(worktree, token=token, base_url=base_url)
             ensure_gitignore_entry(worktree)
-        write_aijail_config(worktree)
+        write_aijail_config(worktree, claude_args=claude_args)
         terminal = self._terminal_resolver()
         # `ai-jail` (no positional arg) reads `command` from
         # `<cwd>/.ai-jail` (written above). The earlier

@@ -135,6 +135,30 @@ describe('api', () => {
     });
   });
 
+  it('createTask: POST /api/tasks accepts optional template', async () => {
+    fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 't1' }, 201));
+    await api.createTask({ project_id: 'p1', title: 'T', template: 'frontend' });
+    const call = fetchSpy.mock.calls[0]!;
+    expect(JSON.parse(call[1].body)).toEqual({
+      project_id: 'p1',
+      title: 'T',
+      template: 'frontend',
+    });
+  });
+
+  it('getCatalog: GET /api/catalog', async () => {
+    const fake = {
+      version: '1',
+      fallback_permission_profile: 'yolo',
+      permission_profiles: [],
+      templates: [],
+    };
+    fetchSpy.mockResolvedValueOnce(jsonResponse(fake));
+    const r = await api.getCatalog();
+    expect(fetchSpy).toHaveBeenCalledWith('/api/catalog', expect.any(Object));
+    expect(r).toEqual(fake);
+  });
+
   it('patchTask: PATCH /api/tasks/{id} with partial body', async () => {
     fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 't1' }));
     await api.patchTask('t1', { state: 'ready' });

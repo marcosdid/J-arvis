@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from orchestrator.api.bootstrap import router as bootstrap_router
+from orchestrator.api.catalog import router as catalog_router
 from orchestrator.api.projects import router as projects_router
 from orchestrator.api.runs import run_router
 from orchestrator.api.runs import task_router as runs_task_router
@@ -16,6 +17,7 @@ from orchestrator.api.worktrees import router as worktrees_router
 from orchestrator.api.worktrees import worktree_router
 from orchestrator.api.ws import router as ws_router
 from orchestrator.config import RuntimeMode, Settings
+from orchestrator.core.catalog import load_catalog
 from orchestrator.core.git import SubprocessGitWorktreeOps
 from orchestrator.core.health import health_status
 from orchestrator.core.port_allocator import PortAllocator
@@ -68,12 +70,17 @@ def create_app(
     app.state.port_allocator = (
         getattr(app.state, "port_allocator", None) or PortAllocator()
     )
+    catalog_path = Path(__file__).parent / "config" / "catalog.yml"
+    app.state.catalog = (
+        getattr(app.state, "catalog", None) or load_catalog(catalog_path)
+    )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": health_status()}
 
     if database is not None:
+        app.include_router(catalog_router, prefix="/api")
         app.include_router(projects_router, prefix="/api")
         app.include_router(worktrees_router, prefix="/api")
         app.include_router(worktree_router, prefix="/api")

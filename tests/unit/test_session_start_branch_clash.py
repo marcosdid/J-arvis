@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.git import GitWorktreeError
 from orchestrator.core.sessions import start_session
 from orchestrator.store.database import Database
@@ -16,7 +17,7 @@ from tests.unit.test_session_start_atomic import (
 )
 
 
-async def test_branch_clash_at_first_repo_rollbacks_clean(tmp_path: Path) -> None:
+async def test_branch_clash_at_first_repo_rollbacks_clean(tmp_path: Path, catalog: Catalog) -> None:
     db = Database(f"sqlite+aiosqlite:///{tmp_path}/c.db")
     await db.bootstrap()
     git = FakeGitOps(fail_at=0)  # 1st add falha imediatamente
@@ -27,7 +28,9 @@ async def test_branch_clash_at_first_repo_rollbacks_clean(tmp_path: Path) -> Non
         task_id = task.id
 
         with pytest.raises(GitWorktreeError):
-            await start_session(s, FakeRuntime(), git, task_id=task_id, broadcaster=bc)
+            await start_session(
+                s, FakeRuntime(), git, task_id=task_id, broadcaster=bc, catalog=catalog,
+            )
 
         # No worktrees created
         assert len(git.added) == 0

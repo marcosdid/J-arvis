@@ -3,6 +3,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
+from orchestrator.core.catalog import Catalog
+
 
 @dataclass(frozen=True)
 class JailHandle:
@@ -32,6 +34,8 @@ class SessionRuntime(Protocol):
         self,
         worktree: Path,
         *,
+        permission_profile: str | None,
+        catalog: Catalog,
         token: str | None = None,
         base_url: str | None = None,
     ) -> JailHandle: ...

@@ -1,3 +1,10 @@
+"""Configuração curada do daemon (catálogo de templates/perfis) e settings
+carregadas de variáveis de ambiente.
+
+Este pacote substitui o antigo módulo ``orchestrator/config.py``: os símbolos
+públicos (``Settings``, ``RuntimeMode``, ``NotifyMode``, ``_REPO_ROOT``)
+continuam acessíveis via ``from orchestrator.config import ...``.
+"""
 from pathlib import Path
 from typing import Literal
 
@@ -6,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 RuntimeMode = Literal["aijail", "null"]
 NotifyMode = Literal["on", "off"]
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):

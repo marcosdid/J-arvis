@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.git import GitWorktreeError
 from orchestrator.core.sessions import (
     CwdAlreadyExistsError,
@@ -68,7 +69,11 @@ class CollectingBroadcaster:
 
 
 class FakeRuntime:
-    async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
+    async def spawn(
+        self, cwd: Path, *,
+        permission_profile=None, catalog=None,
+        token=None, base_url=None,
+    ) -> JailHandle:
         return JailHandle(id="fake", pid=42, started_at=datetime.now(UTC))
 
     async def kill(self, handle, *, worktree=None) -> None:
@@ -78,7 +83,11 @@ class FakeRuntime:
 class FailingRuntime:
     """Spawn always fails - used to test spawn-failure rollback."""
 
-    async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
+    async def spawn(
+        self, cwd: Path, *,
+        permission_profile=None, catalog=None,
+        token=None, base_url=None,
+    ) -> JailHandle:
         raise RuntimeError("simulated spawn failure")
 
     async def kill(self, handle, *, worktree=None) -> None:
@@ -105,7 +114,7 @@ async def _seed_multi_repo_project(
     return project, repos, task
 
 
-async def test_atomic_spawn_multi_repo_happy_path(tmp_path: Path) -> None:
+async def test_atomic_spawn_multi_repo_happy_path(tmp_path: Path, catalog: Catalog) -> None:
     db = Database(f"sqlite+aiosqlite:///{tmp_path}/a.db")
     await db.bootstrap()
     git = FakeGitOps()
@@ -117,7 +126,7 @@ async def test_atomic_spawn_multi_repo_happy_path(tmp_path: Path) -> None:
 
         row = await start_session(
             s, runtime, git,
-            task_id=task.id, broadcaster=bc,
+            task_id=task.id, broadcaster=bc, catalog=catalog,
         )
 
         # 2 worktrees criadas no FS via Fake
@@ -135,7 +144,7 @@ async def test_atomic_spawn_multi_repo_happy_path(tmp_path: Path) -> None:
         assert len(worktree_events) == 2
 
 
-async def test_atomic_spawn_rollback_on_second_add_fail(tmp_path: Path) -> None:
+async def test_atomic_spawn_rollback_on_second_add_fail(tmp_path: Path, catalog: Catalog) -> None:
     """Critical: rollback on partial failure must leave NO traces:
     no FS, no DB rows committed, NO worktree.created broadcasts emitted.
     """
@@ -150,7 +159,9 @@ async def test_atomic_spawn_rollback_on_second_add_fail(tmp_path: Path) -> None:
         task_id = task.id  # capture before rollback expires attributes
 
         with pytest.raises(GitWorktreeError):
-            await start_session(s, runtime, git, task_id=task_id, broadcaster=bc)
+            await start_session(
+                s, runtime, git, task_id=task_id, broadcaster=bc, catalog=catalog,
+            )
 
         # 1st add foi feito; rollback chamou remove
         assert len(git.added) == 1
@@ -165,7 +176,9 @@ async def test_atomic_spawn_rollback_on_second_add_fail(tmp_path: Path) -> None:
         )
 
 
-async def test_spawn_failure_rolls_back_committed_worktrees(tmp_path: Path) -> None:
+async def test_spawn_failure_rolls_back_committed_worktrees(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
     """When runtime.spawn fails AFTER worktrees are committed to DB,
     rollback must remove them from BOTH filesystem AND database, leaving
     no zombies (DB pointing at non-existent paths)."""
@@ -181,7 +194,7 @@ async def test_spawn_failure_rolls_back_committed_worktrees(tmp_path: Path) -> N
     async with db.session() as s:
         with pytest.raises(RuntimeError, match="simulated spawn failure"):
             await start_session(s, FailingRuntime(), git,
-                                task_id=task_id, broadcaster=bc)
+                                task_id=task_id, broadcaster=bc, catalog=catalog)
 
     # Worktrees were created in FS then removed
     assert len(git.added) == 2
@@ -205,7 +218,7 @@ class FlakyRollbackGit(FakeGitOps):
         raise GitWorktreeError(f"simulated rollback failure on {target}")
 
 
-async def test_rollback_swallows_git_remove_failure(tmp_path: Path) -> None:
+async def test_rollback_swallows_git_remove_failure(tmp_path: Path, catalog: Catalog) -> None:
     """When the worktree-rollback path itself fails on git remove, the
     error is logged and swallowed; the original GitWorktreeError still
     propagates and DB rollback completes cleanly."""
@@ -218,7 +231,7 @@ async def test_rollback_swallows_git_remove_failure(tmp_path: Path) -> None:
         task_id = task.id
 
         with pytest.raises(GitWorktreeError):
-            await start_session(s, FakeRuntime(), git, task_id=task_id)
+            await start_session(s, FakeRuntime(), git, task_id=task_id, catalog=catalog)
 
         # 1st add succeeded, 2nd failed; rollback try-removed the 1st but its
         # remove raised — was warned + swallowed.
@@ -227,7 +240,9 @@ async def test_rollback_swallows_git_remove_failure(tmp_path: Path) -> None:
         assert wts == []
 
 
-async def test_spawn_failure_on_re_iniciar_does_not_rollback(tmp_path: Path) -> None:
+async def test_spawn_failure_on_re_iniciar_does_not_rollback(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
     """Re-iniciar reuses existing worktrees; on spawn-fail there are no
     *new* worktrees to rollback. State only reverts if it actually transitioned."""
     db = Database(f"sqlite+aiosqlite:///{tmp_path}/sf2.db")
@@ -237,7 +252,7 @@ async def test_spawn_failure_on_re_iniciar_does_not_rollback(tmp_path: Path) -> 
 
     async with db.session() as s:
         _, _, task = await _seed_multi_repo_project(s, tmp_path, ["solo"])
-        first = await start_session(s, runtime, git, task_id=task.id)
+        first = await start_session(s, runtime, git, task_id=task.id, catalog=catalog)
         await stop_session(s, runtime, first.id)
         adds_after_first = len(git.added)
 
@@ -245,14 +260,14 @@ async def test_spawn_failure_on_re_iniciar_does_not_rollback(tmp_path: Path) -> 
     # in_progress, so prev_state == new_state -> 202->205 false branch.
     async with db.session() as s:
         with pytest.raises(RuntimeError, match="simulated spawn failure"):
-            await start_session(s, FailingRuntime(), git, task_id=task.id)
+            await start_session(s, FailingRuntime(), git, task_id=task.id, catalog=catalog)
 
     # No new git.add (re-iniciar reused), and no removes either (nothing to rollback)
     assert len(git.added) == adds_after_first
     assert len(git.removed) == 0
 
 
-async def test_spawn_failure_when_cwd_already_cleaned_up(tmp_path: Path) -> None:
+async def test_spawn_failure_when_cwd_already_cleaned_up(tmp_path: Path, catalog: Catalog) -> None:
     """Multi-repo rollback: if the parent cwd was already removed (race),
     the rmdir branch doesn't fire. Covers _rollback_after_spawn_failure
     branch 146->149."""
@@ -272,10 +287,10 @@ async def test_spawn_failure_when_cwd_already_cleaned_up(tmp_path: Path) -> None
     async with db.session() as s:
         _, _, task = await _seed_multi_repo_project(s, tmp_path, ["a", "b"])
         with pytest.raises(RuntimeError, match="simulated spawn failure"):
-            await start_session(s, FailingRuntime(), git, task_id=task.id)
+            await start_session(s, FailingRuntime(), git, task_id=task.id, catalog=catalog)
 
 
-async def test_stop_session_idempotent_when_already_done(tmp_path: Path) -> None:
+async def test_stop_session_idempotent_when_already_done(tmp_path: Path, catalog: Catalog) -> None:
     """Calling stop_session on a session whose status is already terminal
     is a no-op (no extra runtime.kill, no DB mutation)."""
     db = Database(f"sqlite+aiosqlite:///{tmp_path}/idem.db")
@@ -285,7 +300,7 @@ async def test_stop_session_idempotent_when_already_done(tmp_path: Path) -> None
 
     async with db.session() as s:
         _, _, task = await _seed_multi_repo_project(s, tmp_path, ["solo"])
-        row = await start_session(s, runtime, git, task_id=task.id)
+        row = await start_session(s, runtime, git, task_id=task.id, catalog=catalog)
         await stop_session(s, runtime, row.id)
         kills_after_first = len(getattr(runtime, "killed", []))
         # Second stop is a no-op
@@ -296,7 +311,9 @@ async def test_stop_session_idempotent_when_already_done(tmp_path: Path) -> None
         assert kills_after_first == 0  # FakeRuntime.kill is a no-op anyway
 
 
-async def test_cwd_already_exists_raises_before_any_side_effect(tmp_path: Path) -> None:
+async def test_cwd_already_exists_raises_before_any_side_effect(
+    tmp_path: Path, catalog: Catalog,
+) -> None:
     """If the derived cwd path already exists (from a manual mkdir or stale
     directory), refuse before any git ops or DB writes."""
     db = Database(f"sqlite+aiosqlite:///{tmp_path}/cwd.db")
@@ -311,7 +328,7 @@ async def test_cwd_already_exists_raises_before_any_side_effect(tmp_path: Path) 
         cwd.mkdir(parents=True, exist_ok=False)
 
         with pytest.raises(CwdAlreadyExistsError):
-            await start_session(s, FakeRuntime(), git, task_id=task.id)
+            await start_session(s, FakeRuntime(), git, task_id=task.id, catalog=catalog)
 
         # Nothing happened
         assert len(git.added) == 0

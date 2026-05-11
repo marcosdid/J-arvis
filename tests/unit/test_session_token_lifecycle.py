@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.sessions import start_session, stop_session
 from orchestrator.core.tasks import create_task
 from orchestrator.hooks.tokens import TokenRegistry
@@ -28,7 +29,11 @@ class FakeGitOps:
 
 
 class FakeRuntime:
-    async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
+    async def spawn(
+        self, cwd: Path, *,
+        permission_profile=None, catalog=None,
+        token=None, base_url=None,
+    ) -> JailHandle:
         return JailHandle(id="fake", pid=1, started_at=datetime.now(UTC))
 
     async def kill(self, handle, *, worktree=None) -> None:
@@ -60,18 +65,19 @@ async def _seed_project(db: Database, tmp_path: Path) -> str:
 
 @pytest.mark.asyncio
 async def test_start_session_registers_token_when_registry_provided(
-    db: Database, tmp_path: Path,
+    db: Database, tmp_path: Path, catalog: Catalog,
 ) -> None:
     pid = await _seed_project(db, tmp_path)
     registry = TokenRegistry()
 
     async with db.session() as s:
-        t = await create_task(s, project_id=pid, title="seed")
+        t = await create_task(s, project_id=pid, title="seed", catalog=catalog)
         row = await start_session(
             s, FakeRuntime(), FakeGitOps(),
             task_id=t.id,
             token_registry=registry,
             base_url="http://localhost:8000",
+            catalog=catalog,
         )
 
     assert row.hook_token is not None
@@ -80,19 +86,20 @@ async def test_start_session_registers_token_when_registry_provided(
 
 @pytest.mark.asyncio
 async def test_stop_session_revokes_token_when_registry_provided(
-    db: Database, tmp_path: Path,
+    db: Database, tmp_path: Path, catalog: Catalog,
 ) -> None:
     pid = await _seed_project(db, tmp_path)
     registry = TokenRegistry()
     runtime = FakeRuntime()
 
     async with db.session() as s:
-        t = await create_task(s, project_id=pid, title="seed")
+        t = await create_task(s, project_id=pid, title="seed", catalog=catalog)
         row = await start_session(
             s, runtime, FakeGitOps(),
             task_id=t.id,
             token_registry=registry,
             base_url="http://localhost:8000",
+            catalog=catalog,
         )
 
     token = row.hook_token

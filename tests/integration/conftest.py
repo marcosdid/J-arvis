@@ -3,6 +3,7 @@ import subprocess
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -22,10 +23,16 @@ async def db(tmp_path: Path) -> AsyncIterator[Database]:
 
 
 class FakeSessionRuntime:
-    """In-memory SessionRuntime for tests. Tracks spawned and killed handles."""
+    """In-memory SessionRuntime for tests. Tracks spawned and killed handles.
+
+    Each entry in ``spawned`` is a tuple
+    ``(handle, token, base_url, permission_profile)`` recorded per ``spawn`` call.
+    """
 
     def __init__(self) -> None:
-        self.spawned: list[tuple[JailHandle, str | None, str | None]] = []
+        # (handle, token, base_url, permission_profile) per spawn — matches the
+        # SessionRuntime.spawn kwargs order so assertions read like the call site.
+        self.spawned: list[tuple[JailHandle, str | None, str | None, str | None]] = []
         self.killed: list[tuple[JailHandle, Path | None]] = []
         self._next_pid = 10000
 
@@ -33,6 +40,8 @@ class FakeSessionRuntime:
         self,
         worktree: Path,
         *,
+        permission_profile: str | None = None,
+        catalog: Any = None,
         token: str | None = None,
         base_url: str | None = None,
     ) -> JailHandle:
@@ -42,7 +51,7 @@ class FakeSessionRuntime:
             pid=self._next_pid,
             started_at=datetime.now(UTC),
         )
-        self.spawned.append((handle, token, base_url))
+        self.spawned.append((handle, token, base_url, permission_profile))
         return handle
 
     async def kill(self, handle: JailHandle, *, worktree: Path | None = None) -> None:

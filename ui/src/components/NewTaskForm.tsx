@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import type { Project } from '../lib/api';
 import { useCreateTask } from '../hooks/useTaskMutations';
+import { useCatalog } from '../hooks/useCatalog';
 import { InvalidBranchSlugError, slugifyForBranch } from '../lib/slug';
 
 type Props = { projects: Project[] };
@@ -9,8 +10,10 @@ export function NewTaskForm({ projects }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [branch, setBranch] = useState('');
+  const [template, setTemplate] = useState<string>('');
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
   const create = useCreateTask();
+  const catalogQ = useCatalog();
 
   const canSubmit = title.trim().length > 0 && projectId !== '';
 
@@ -27,6 +30,21 @@ export function NewTaskForm({ projects }: Props) {
     }
   })();
 
+  const selectedTemplate = catalogQ.data?.templates.find((t) => t.name === template);
+
+  const templateHint = (() => {
+    if (!selectedTemplate) return '';
+    if (branch.trim() !== '') return 'Branch override — prefix do template ignorado';
+    try {
+      return `Branch será: ${selectedTemplate.branch_prefix}${slugifyForBranch(title)}`;
+    } catch (e) {
+      if (e instanceof InvalidBranchSlugError) {
+        return `Branch será: ${selectedTemplate.branch_prefix}<slug-do-título>`;
+      }
+      throw e;
+    }
+  })();
+
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmedBranch = branch.trim();
@@ -36,12 +54,14 @@ export function NewTaskForm({ projects }: Props) {
         title,
         description,
         ...(trimmedBranch && { branch: trimmedBranch }),
+        ...(template && { template }),
       },
       {
         onSuccess: () => {
           setTitle('');
           setDescription('');
           setBranch('');
+          setTemplate('');
         },
       },
     );
@@ -65,6 +85,24 @@ export function NewTaskForm({ projects }: Props) {
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Título"
       />
+      <label>
+        Template:
+        <select
+          aria-label="template"
+          value={template}
+          onChange={(e) => setTemplate(e.target.value)}
+        >
+          <option value="">(nenhum)</option>
+          {catalogQ.data?.templates.map((t) => (
+            <option key={t.name} value={t.name} data-template-name={t.name}>
+              {t.name} — {t.description}
+            </option>
+          ))}
+        </select>
+      </label>
+      {templateHint && (
+        <p className="hint" aria-label="template-hint">{templateHint}</p>
+      )}
       <textarea
         aria-label="descrição"
         value={description}

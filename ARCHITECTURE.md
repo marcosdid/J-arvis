@@ -50,7 +50,7 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
   - `state ∈ {idea, ready, in_progress, review, done, discarded}`
   - `branch` (F5): opcional. Vazio → daemon usa `slugify_for_branch(title)`.
     Imutável após 1ª sessão (422).
-  - `template`/`permission_profile` populados em F7. F4 deixa `NULL`.
+  - `template`/`permission_profile` populados em F7 quando user escolhe template no form de criar task. Tasks F4-F6 ficam NULL e usam fallback (`yolo`) do catálogo no spawn.
 - `ClaudeSession(id, task_id, cwd, jail_id, status, pid, started_at, ended_at?, transcript_path)`
   - Classe nomeada `ClaudeSession` para não colidir com `sqlalchemy.orm.Session`/`AsyncSession`. Tabela `sessions`.
   - `cwd` (F5) substitui `worktree_id` da F1/F4: pra multi-repo `cwd` é o
@@ -211,7 +211,7 @@ Cada fase termina demonstrável + verde nas três camadas.
 | **F4 — Backlog kanban** ✅ | Kanban unificado cross-project; criar/mover/discardar tasks; iniciar sessão de uma task; quick session cria task implícita | `Task`, kanban UI 5 colunas com `@dnd-kit`, `Session.task_id` NOT NULL, drawer lateral pra projects/worktrees. F4.m fechou gate de cobertura (auto-marker em `tests/conftest.py`) |
 | **F5 — Mapa de worktrees + multi-repo** ✅ | Drawer "Projetos & Worktrees": árvore task-grouped por projeto; multi-repo (1 task → N worktrees compartilham 1 sessão); worktrees auto-criadas ao iniciar sessão, auto-removidas em `done`/`discarded`; órfãs detectadas e removíveis | `Repository` model + auto-detect, `GitWorktreeOps`, `start_session` atomic 3-layer (FS+DB+WS), `task.branch` opcional, hard-break `POST /api/sessions {worktree_id}` |
 | **F6 — Run from Panel** ✅ | `▶ Run` no TaskCard sobe stack via `.orchestrator/run.yml` (services dict docker-compose-like); chips de URL clicáveis quando ready; SSE stream de logs por serviço; bootstrap de manifesto por sessão Claude efêmera quando falta | `RunInstance` task-scoped (1 ativa por task), Pydantic manifest parser, PortAllocator 31000-31999, `DockerOps` Protocol + Subprocess impl, atomic 3-layer rollback, file watcher pra bootstrap |
-| **F7 — Templates + perfis** | Templates frontend/backend/refactor/bugfix com perfil pré-aprovado | catálogo, perfil aplicado no spawn |
+| **F7 — Templates + perfis** ✅ | Templates frontend/backend/refactor/bugfix com perfil pré-aprovado aplicado no spawn; catálogo curado em `orchestrator/config/catalog.yml`; dropdown único no form de criar task | `Catalog` Pydantic + `load_catalog`, `GET /api/catalog`, `Task.template`/`permission_profile` populados; `AiJailRuntime.spawn` consome `claude_args` do catálogo; fallback yolo p/ tasks F4-F6 com NULL |
 | **F8 (v1.5)** — Planner meta-agente | Usuário cola épico → preview de subtasks → backlog | sessão efêmera, tela de preview, bulk insert |
 
 **MVP = F0 → F7.**
@@ -255,3 +255,4 @@ criar novo ADR e atualizar `docs/adr/README.md`.**
 | RunInstance é detalhe da task | [0018](docs/adr/0018-run-instance-detalhe-da-task.md) | `task_id` FK + partial unique `WHERE ended_at IS NULL`; 1 run ativa por task | Paralelo a Worktree/Session pós-F5; cleanup automático em terminal state |
 | Manifest F6 — services dict + depends_on | [0019](docs/adr/0019-manifest-services-dict-com-depends-on.md) | `services:` dict (docker-compose-like), Pydantic `extra="forbid"`, topo sort | Cobre N serviços; familiar pra dev backend |
 | Bootstrap via Claude efêmero | [0020](docs/adr/0020-bootstrap-via-sessao-claude-efemera.md) | Sessão Claude sem task_id + file watcher polling `.orchestrator/run.yml` | Zero manutenção de templates; manifesto fica commitado |
+| F7 catálogo | [0021](docs/adr/0021-catalog-yaml-curado-templates-perfis.md) | YAML curado + Pydantic + load 1x lifespan | Sem migração, auditável via git diff, editar = commit |

@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orchestrator.core.catalog import Catalog
+from orchestrator.core.slug import slugify_for_branch
 from orchestrator.store.models import Project, Task, Worktree
 
 _VALID_TRANSITIONS: frozenset[tuple[str, str]] = frozenset({
@@ -59,6 +61,17 @@ class InvalidBranchOverrideError(Exception):
     """Raised when task.branch override fails the regex/length validation."""
 
 
+class InvalidTemplateError(Exception):
+    """`template` passed to create_task is not in catalog."""
+
+    def __init__(self, template: str, valid_templates: list[str]) -> None:
+        super().__init__(
+            f"template {template!r} not in catalog; valid: {sorted(valid_templates)}"
+        )
+        self.template = template
+        self.valid_templates = sorted(valid_templates)
+
+
 _BRANCH_OVERRIDE_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]*$")
 _BRANCH_OVERRIDE_MAX = 200
 
@@ -78,6 +91,8 @@ async def create_task(
     title: str,
     description: str = "",
     branch: str | None = None,
+    template: str | None = None,
+    catalog: Catalog,
 ) -> Task:
     if not title or not title.strip():
         raise InvalidTaskTitleError("title cannot be empty or whitespace-only")
@@ -89,6 +104,16 @@ async def create_task(
             f"branch must match ^[a-z0-9][a-z0-9._/-]*$ "
             f"and be <= {_BRANCH_OVERRIDE_MAX} chars"
         )
+    # F7: resolver template (se fornecido). Roda APÓS validação de branch
+    # override e ANTES do project lookup pra falhar barato em template inválido.
+    permission_profile: str | None = None
+    if template is not None:
+        if template not in catalog.templates:
+            raise InvalidTemplateError(template, list(catalog.templates.keys()))
+        tspec = catalog.templates[template]
+        permission_profile = tspec.default_permission_profile
+        if branch is None:
+            branch = f"{tspec.branch_prefix}{slugify_for_branch(title)}"
     project = await db.get(Project, project_id)
     if project is None:
         raise ProjectNotFoundForTaskError(f"project not found: {project_id}")
@@ -97,6 +122,8 @@ async def create_task(
         title=title,
         description=description,
         branch=branch,
+        template=template,
+        permission_profile=permission_profile,
     )
     db.add(row)
     await db.commit()

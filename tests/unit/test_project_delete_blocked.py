@@ -1,5 +1,6 @@
 import pytest
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.projects import (
     ProjectHasTasksError,
     ProjectNotFoundError,
@@ -9,12 +10,12 @@ from orchestrator.core.projects import (
 from orchestrator.core.tasks import create_task
 
 
-async def test_delete_project_with_tasks_raises(db_session, tmp_path) -> None:
+async def test_delete_project_with_tasks_raises(db_session, tmp_path, catalog: Catalog) -> None:
     repo = tmp_path / "r"
     repo.mkdir()
     (repo / ".git").mkdir()
     p = await create_project(db_session, "p", str(repo))
-    await create_task(db_session, project_id=p.id, title="T")
+    await create_task(db_session, project_id=p.id, title="T", catalog=catalog)
     with pytest.raises(ProjectHasTasksError):
         await delete_project(db_session, p.id)
 
