@@ -1,3 +1,8 @@
+"""E2E: hook events drive session status (Notification → awaiting, Stop → idle).
+
+Post-F5 (ADR-0017): start session through the task modal, not via a
+worktree-direct button.
+"""
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -11,13 +16,21 @@ def test_hooks_e2e_status_changes_via_simulated_hook(
     page.goto(url)
     expect(page).to_have_title("J-arvis")
 
+    page.get_by_role("button", name="Projetos ▾").click()
     page.get_by_label("project-name").fill("demo")
     page.get_by_label("project-path").fill(repo_path)
     page.get_by_role("button", name="Adicionar projeto").click()
-    expect(page.get_by_role("heading", name="demo")).to_be_visible()
+    expect(page.locator("text=demo").first).to_be_visible()
+    page.get_by_label("close-drawer").click()
 
-    page.get_by_label("start-main").click()
-    expect(page.get_by_text("Em execução")).to_be_visible()
+    page.fill('[aria-label="título"]', "Hook flow")
+    page.get_by_role("button", name="Criar").click()
+
+    page.locator("text=Hook flow").first.click()
+    page.get_by_role("button", name="Iniciar sessão").click()
+    inprog = page.locator('[data-testid="column-In Progress"]')
+    expect(inprog).to_contain_text("Hook flow")
+    page.get_by_label("close").click()
 
     sessions_resp = page.evaluate("async () => (await fetch('/api/sessions')).json()")
     sid = sessions_resp[0]["id"]

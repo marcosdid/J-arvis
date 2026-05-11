@@ -23,12 +23,16 @@ def test_kanban_happy_path(
     → auto In Progress → drag pra Review → Done."""
     url, repo_path = orchestrator_with_repo
 
-    # Seed project + worktree via UI so kanban has a worktree to pick
     page.goto(url)
+
+    # Seed project via drawer (post-F5: project add lives in drawer)
+    page.click('button:has-text("Projetos ▾")')
+    expect(page.locator('[role="dialog"][aria-label="projects-drawer"]')).to_be_visible()
     page.get_by_label("project-name").fill("demo")
     page.get_by_label("project-path").fill(repo_path)
     page.get_by_role("button", name="Adicionar projeto").click()
-    expect(page.get_by_role("heading", name="demo")).to_be_visible()
+    expect(page.locator("text=demo").first).to_be_visible()
+    page.get_by_label("close-drawer").click()
 
     # Kanban board renders
     expect(page.locator('[data-testid="column-Backlog"]')).to_be_visible()
@@ -47,9 +51,8 @@ def test_kanban_happy_path(
     page.select_option('[aria-label="move to"]', "ready")
     page.click('[aria-label="close"]')
 
-    # Reopen + Iniciar sessão
+    # Reopen + Iniciar sessão (post-F5: no worktree picker)
     page.click('text=Adicionar dark mode')
-    page.select_option('[aria-label="worktree"]', index=1)
     page.click('button:has-text("Iniciar sessão")')
 
     # Card auto-moveu pra In Progress
@@ -67,28 +70,6 @@ def test_kanban_happy_path(
     done = page.locator('[data-testid="column-Done"]')
     src.drag_to(done)
     expect(done).to_contain_text("Adicionar dark mode")
-
-
-@pytest.mark.e2e
-def test_quick_session_creates_task(
-    page: Page,
-    orchestrator_with_repo: tuple[str, str],
-) -> None:
-    """Click Quick session no drawer → task implícita aparece em In Progress."""
-    url, repo_path = orchestrator_with_repo
-
-    page.goto(url)
-    page.get_by_label("project-name").fill("demo-qs")
-    page.get_by_label("project-path").fill(repo_path)
-    page.get_by_role("button", name="Adicionar projeto").click()
-    expect(page.get_by_role("heading", name="demo-qs")).to_be_visible()
-
-    page.click('button:has-text("Projetos ▾")')
-    expect(page.locator('[role="dialog"][aria-label="projects-drawer"]')).to_be_visible()
-    page.locator('button:has-text("▶ Quick session")').first.click()
-
-    inprog = page.locator('[data-testid="column-In Progress"]')
-    expect(inprog).to_contain_text("Quick session")
 
 
 @pytest.mark.e2e
@@ -110,10 +91,12 @@ def test_filter_persists_across_reload(
     url, repo_path = orchestrator_with_repo
 
     page.goto(url)
+    page.click('button:has-text("Projetos ▾")')
     page.get_by_label("project-name").fill("projA")
     page.get_by_label("project-path").fill(repo_path)
     page.get_by_role("button", name="Adicionar projeto").click()
-    expect(page.get_by_role("heading", name="projA")).to_be_visible()
+    expect(page.locator("text=projA").first).to_be_visible()
+    page.get_by_label("close-drawer").click()
 
     # Click projA chip in filters
     page.click('button.chip:has-text("projA")')
