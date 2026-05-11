@@ -60,6 +60,26 @@ export type BootstrapSession = {
   cwd: string;
 };
 
+export type PermissionProfile = {
+  name: string;
+  description: string;
+  claude_args: string[];
+};
+
+export type Template = {
+  name: string;
+  description: string;
+  default_permission_profile: string;
+  branch_prefix: string;
+};
+
+export type Catalog = {
+  version: '1';
+  fallback_permission_profile: string;
+  permission_profiles: PermissionProfile[];
+  templates: Template[];
+};
+
 export type Task = {
   id: string;
   project_id: string;
@@ -125,6 +145,7 @@ export const api = {
     title: string;
     description?: string;
     branch?: string;
+    template?: string;
   }) => http<Task>('/tasks', { method: 'POST', body: JSON.stringify(input) }),
   patchTask: (
     id: string,
@@ -154,4 +175,5 @@ export const api = {
       `/tasks/${encodeURIComponent(taskId)}/bootstrap-manifest`,
       { method: 'POST' },
     ),
+  getCatalog: () => http<Catalog>('/catalog'),
 };
