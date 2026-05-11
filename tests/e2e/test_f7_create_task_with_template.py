@@ -1,6 +1,6 @@
 """F7 E2E: criar task com template aplica prefix + grava profile + badges visíveis.
 
-⚠️ Cannot run from inside ai-jail (gotcha #15). Host-only:
+⚠️ Cannot run from inside ai-jail (gotcha #9). Host-only:
     uv run --group test-e2e pytest tests/e2e/test_f7_create_task_with_template.py -v
 """
 import pytest

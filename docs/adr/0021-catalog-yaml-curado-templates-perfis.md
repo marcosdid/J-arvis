@@ -1,6 +1,6 @@
 # ADR-0021: Catálogo curado (YAML) de templates + perfis de permissão
 
-**Status:** Aceito — 2026-05-11
+**Status:** Accepted — 2026-05-11
 **Decisores:** marcosdid + Claude
 **Contexto:** F7 (última fase do MVP)
 
