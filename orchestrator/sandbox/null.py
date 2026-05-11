@@ -9,9 +9,13 @@ assertions.
 from datetime import UTC, datetime
 from itertools import count
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from orchestrator.sandbox.runtime import JailHandle
+
+if TYPE_CHECKING:
+    from orchestrator.core.catalog import Catalog
 
 
 class NullSessionRuntime:
@@ -22,6 +26,8 @@ class NullSessionRuntime:
         self,
         _worktree: Path,
         *,
+        permission_profile: str | None = None,
+        catalog: "Catalog | None" = None,
         token: str | None = None,
         base_url: str | None = None,
     ) -> JailHandle:

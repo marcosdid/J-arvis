@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.git import GitWorktreeError, GitWorktreeOps
 from orchestrator.core.repositories import list_project_repositories
 from orchestrator.core.slug import slugify_for_branch
@@ -158,6 +159,7 @@ async def start_session(
     token_registry: TokenRegistry | None = None,
     base_url: str | None = None,
     broadcaster: WsBroadcaster | None = None,
+    catalog: Catalog,
 ) -> ClaudeSession:
     task = await get_task(session, task_id)
     await session.refresh(task)
@@ -193,7 +195,13 @@ async def start_session(
 
     token = generate_token() if token_registry is not None else None
     try:
-        handle = await runtime.spawn(cwd, token=token, base_url=base_url)
+        handle = await runtime.spawn(
+            cwd,
+            permission_profile=task.permission_profile,
+            catalog=catalog,
+            token=token,
+            base_url=base_url,
+        )
     except Exception:
         if new_worktree_pairs:
             await _rollback_after_spawn_failure(

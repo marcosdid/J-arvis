@@ -34,7 +34,11 @@ class FakeGitOps:
 
 
 class FakeRuntime:
-    async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
+    async def spawn(
+        self, cwd: Path, *,
+        permission_profile=None, catalog=None,
+        token=None, base_url=None,
+    ) -> JailHandle:
         return JailHandle(id="fake", pid=1, started_at=datetime.now(UTC))
 
     async def kill(self, handle, *, worktree=None) -> None:
@@ -57,15 +61,23 @@ async def _seed(db_session, tmp_path: Path) -> str:
 async def test_second_active_session_raises(db_session, tmp_path: Path, catalog: Catalog):
     pid = await _seed(db_session, tmp_path)
     t = await create_task(db_session, project_id=pid, title="T", catalog=catalog)
-    await start_session(db_session, FakeRuntime(), FakeGitOps(), task_id=t.id)
+    await start_session(
+        db_session, FakeRuntime(), FakeGitOps(), task_id=t.id, catalog=catalog,
+    )
     with pytest.raises(TaskAlreadyHasActiveSessionError):
-        await start_session(db_session, FakeRuntime(), FakeGitOps(), task_id=t.id)
+        await start_session(
+            db_session, FakeRuntime(), FakeGitOps(), task_id=t.id, catalog=catalog,
+        )
 
 
 async def test_after_stop_can_start_again(db_session, tmp_path: Path, catalog: Catalog):
     pid = await _seed(db_session, tmp_path)
     t = await create_task(db_session, project_id=pid, title="T2", catalog=catalog)
     runtime = FakeRuntime()
-    s1 = await start_session(db_session, runtime, FakeGitOps(), task_id=t.id)
+    s1 = await start_session(
+        db_session, runtime, FakeGitOps(), task_id=t.id, catalog=catalog,
+    )
     await stop_session(db_session, runtime, s1.id)
-    await start_session(db_session, runtime, FakeGitOps(), task_id=t.id)
+    await start_session(
+        db_session, runtime, FakeGitOps(), task_id=t.id, catalog=catalog,
+    )

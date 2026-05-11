@@ -29,7 +29,11 @@ class FakeGitOps:
 
 
 class FakeRuntime:
-    async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
+    async def spawn(
+        self, cwd: Path, *,
+        permission_profile=None, catalog=None,
+        token=None, base_url=None,
+    ) -> JailHandle:
         return JailHandle(id="fake", pid=1, started_at=datetime.now(UTC))
 
     async def kill(self, handle, *, worktree=None) -> None:
@@ -66,7 +70,7 @@ async def test_start_session_auto_transitions_to_in_progress(
         await update_task(db, t.id, state="ready")
         await update_task(db, t.id, state="in_progress")
         await update_task(db, t.id, state="review")
-    await start_session(db, runtime, git, task_id=t.id)
+    await start_session(db, runtime, git, task_id=t.id, catalog=catalog)
     await db.refresh(t)
     assert t.state == "in_progress"
 
@@ -76,7 +80,7 @@ async def test_start_session_in_progress_is_noop(setup, catalog: Catalog):
     t = await create_task(db, project_id=pid, title="T", catalog=catalog)
     await update_task(db, t.id, state="ready")
     await update_task(db, t.id, state="in_progress")
-    await start_session(db, runtime, git, task_id=t.id)
+    await start_session(db, runtime, git, task_id=t.id, catalog=catalog)
     await db.refresh(t)
     assert t.state == "in_progress"
 
@@ -95,4 +99,4 @@ async def test_start_session_in_terminal_state_raises(
     else:
         await update_task(db, t.id, state="discarded")
     with pytest.raises(TaskInTerminalStateError):
-        await start_session(db, runtime, git, task_id=t.id)
+        await start_session(db, runtime, git, task_id=t.id, catalog=catalog)

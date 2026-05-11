@@ -29,7 +29,11 @@ class FakeGitOps:
 
 
 class FakeRuntime:
-    async def spawn(self, cwd: Path, *, token=None, base_url=None) -> JailHandle:
+    async def spawn(
+        self, cwd: Path, *,
+        permission_profile=None, catalog=None,
+        token=None, base_url=None,
+    ) -> JailHandle:
         return JailHandle(id="fake", pid=1, started_at=datetime.now(UTC))
 
     async def kill(self, handle, *, worktree=None) -> None:
@@ -73,6 +77,7 @@ async def test_start_session_registers_token_when_registry_provided(
             task_id=t.id,
             token_registry=registry,
             base_url="http://localhost:8000",
+            catalog=catalog,
         )
 
     assert row.hook_token is not None
@@ -94,6 +99,7 @@ async def test_stop_session_revokes_token_when_registry_provided(
             task_id=t.id,
             token_registry=registry,
             base_url="http://localhost:8000",
+            catalog=catalog,
         )
 
     token = row.hook_token

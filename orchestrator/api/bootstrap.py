@@ -17,9 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from orchestrator.api._deps import (
     get_db_session,
     resolve_broadcaster,
+    resolve_catalog,
     resolve_runtime,
 )
 from orchestrator.core.bootstrap import watch_for_manifest
+from orchestrator.core.catalog import Catalog
 from orchestrator.events.broadcaster import WsBroadcaster
 from orchestrator.sandbox.runtime import SessionRuntime
 from orchestrator.store.models import Project, Task
@@ -45,6 +47,7 @@ async def bootstrap_manifest(
     db: Annotated[AsyncSession, Depends(get_db_session)],
     runtime: Annotated[SessionRuntime, Depends(resolve_runtime)],
     broadcaster: Annotated[WsBroadcaster, Depends(resolve_broadcaster)],
+    catalog: Annotated[Catalog, Depends(resolve_catalog)],
 ) -> BootstrapSessionRead:
     task = await db.get(Task, task_id)
     if task is None:
@@ -57,7 +60,11 @@ async def bootstrap_manifest(
     # Spawn sessão efêmera (sem token/base_url → sem .claude/settings.json
     # nem hook plumbing). O usuário interage com Claude no terminal nativo;
     # daemon NÃO rastreia esse PID.
-    await runtime.spawn(project_path)
+    await runtime.spawn(
+        project_path,
+        permission_profile=None,  # bootstrap usa fallback do catálogo
+        catalog=catalog,
+    )
 
     # Watcher polling em background. Não awaitamos — endpoint retorna 202
     # imediatamente; o watcher broadcasta bootstrap.proposed quando o

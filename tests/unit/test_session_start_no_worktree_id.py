@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.sessions import start_session
 from orchestrator.store.database import Database
 from tests.unit.test_session_start_atomic import (
@@ -12,7 +13,7 @@ from tests.unit.test_session_start_atomic import (
 )
 
 
-async def test_start_session_rejects_worktree_id_kwarg(tmp_path: Path) -> None:
+async def test_start_session_rejects_worktree_id_kwarg(tmp_path: Path, catalog: Catalog) -> None:
     db = Database(f"sqlite+aiosqlite:///{tmp_path}/n.db")
     await db.bootstrap()
     async with db.session() as s:
@@ -21,5 +22,6 @@ async def test_start_session_rejects_worktree_id_kwarg(tmp_path: Path) -> None:
             await start_session(
                 s, FakeRuntime(), FakeGitOps(),
                 task_id=task.id,
+                catalog=catalog,
                 worktree_id="legacy-arg-not-allowed",
             )

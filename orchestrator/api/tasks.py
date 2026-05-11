@@ -40,6 +40,7 @@ from orchestrator.core.tasks import (
 )
 from orchestrator.core.worktrees import cleanup_task_worktrees
 from orchestrator.events.envelope import WsEvent
+from orchestrator.sandbox.aijail import PermissionProfileNotInCatalogError
 from orchestrator.sandbox.runtime import SessionRuntime
 from orchestrator.store.models import ClaudeSession
 
@@ -261,6 +262,7 @@ async def post_task_session(
     db: Annotated[AsyncSession, Depends(get_db_session)],
     runtime: Annotated[SessionRuntime, Depends(resolve_runtime)],
     git: Annotated[GitWorktreeOps, Depends(resolve_git_ops)],
+    catalog: Annotated[Catalog, Depends(resolve_catalog)],
 ) -> SessionRead:
     registry = request.app.state.token_registry
     base_url = request.app.state.hook_base_url
@@ -276,6 +278,7 @@ async def post_task_session(
                 token_registry=registry,
                 base_url=base_url,
                 broadcaster=broadcaster,
+                catalog=catalog,
             )
         except TaskNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -283,6 +286,15 @@ async def post_task_session(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except TaskAlreadyHasActiveSessionError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except PermissionProfileNotInCatalogError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "permission_profile_not_in_catalog",
+                    "message": str(exc),
+                    "profile": exc.name,
+                },
+            ) from exc
         except (InvalidBranchSlugError, CwdAlreadyExistsError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except GitWorktreeError as exc:
