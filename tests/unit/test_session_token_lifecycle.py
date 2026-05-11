@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.sessions import start_session, stop_session
 from orchestrator.core.tasks import create_task
 from orchestrator.hooks.tokens import TokenRegistry
@@ -60,13 +61,13 @@ async def _seed_project(db: Database, tmp_path: Path) -> str:
 
 @pytest.mark.asyncio
 async def test_start_session_registers_token_when_registry_provided(
-    db: Database, tmp_path: Path,
+    db: Database, tmp_path: Path, catalog: Catalog,
 ) -> None:
     pid = await _seed_project(db, tmp_path)
     registry = TokenRegistry()
 
     async with db.session() as s:
-        t = await create_task(s, project_id=pid, title="seed")
+        t = await create_task(s, project_id=pid, title="seed", catalog=catalog)
         row = await start_session(
             s, FakeRuntime(), FakeGitOps(),
             task_id=t.id,
@@ -80,14 +81,14 @@ async def test_start_session_registers_token_when_registry_provided(
 
 @pytest.mark.asyncio
 async def test_stop_session_revokes_token_when_registry_provided(
-    db: Database, tmp_path: Path,
+    db: Database, tmp_path: Path, catalog: Catalog,
 ) -> None:
     pid = await _seed_project(db, tmp_path)
     registry = TokenRegistry()
     runtime = FakeRuntime()
 
     async with db.session() as s:
-        t = await create_task(s, project_id=pid, title="seed")
+        t = await create_task(s, project_id=pid, title="seed", catalog=catalog)
         row = await start_session(
             s, runtime, FakeGitOps(),
             task_id=t.id,

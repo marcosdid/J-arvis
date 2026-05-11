@@ -8,8 +8,15 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from orchestrator.api._deps import get_db_session, resolve_git_ops, resolve_runtime
+from orchestrator.api._deps import (
+    get_db_session,
+    resolve_catalog,
+    resolve_git_ops,
+    resolve_runtime,
+)
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.git import GitWorktreeError, GitWorktreeOps
+from orchestrator.core.runs import get_active_run, stop_run
 from orchestrator.core.sessions import (
     CwdAlreadyExistsError,
     start_session,
@@ -19,6 +26,7 @@ from orchestrator.core.tasks import (
     BranchImmutableAfterFirstSessionError,
     InvalidBranchOverrideError,
     InvalidTaskTitleError,
+    InvalidTemplateError,
     InvalidTransitionError,
     ProjectNotFoundForTaskError,
     TaskAlreadyHasActiveSessionError,
@@ -30,7 +38,6 @@ from orchestrator.core.tasks import (
     list_tasks,
     update_task,
 )
-from orchestrator.core.runs import get_active_run, stop_run
 from orchestrator.core.worktrees import cleanup_task_worktrees
 from orchestrator.events.envelope import WsEvent
 from orchestrator.sandbox.runtime import SessionRuntime
@@ -42,6 +49,7 @@ class TaskCreatePayload(BaseModel):
     title: str
     description: str = ""
     branch: str | None = None
+    template: str | None = None
 
 
 class TaskPatchPayload(BaseModel):
@@ -110,6 +118,7 @@ async def post_task(
     payload: TaskCreatePayload,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db_session)],
+    catalog: Annotated[Catalog, Depends(resolve_catalog)],
 ) -> TaskRead:
     try:
         task = await create_task(
@@ -118,8 +127,21 @@ async def post_task(
             title=payload.title,
             description=payload.description,
             branch=payload.branch,
+            template=payload.template,
+            catalog=catalog,
         )
     except (InvalidTaskTitleError, InvalidBranchOverrideError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except InvalidTemplateError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "template_not_in_catalog",
+                "message": str(exc),
+                "valid_templates": exc.valid_templates,
+            },
+        ) from exc
+    except InvalidBranchSlugError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ProjectNotFoundForTaskError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

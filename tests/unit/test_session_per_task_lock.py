@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.sessions import (
     TaskAlreadyHasActiveSessionError,
     start_session,
@@ -53,17 +54,17 @@ async def _seed(db_session, tmp_path: Path) -> str:
     return p.id
 
 
-async def test_second_active_session_raises(db_session, tmp_path: Path):
+async def test_second_active_session_raises(db_session, tmp_path: Path, catalog: Catalog):
     pid = await _seed(db_session, tmp_path)
-    t = await create_task(db_session, project_id=pid, title="T")
+    t = await create_task(db_session, project_id=pid, title="T", catalog=catalog)
     await start_session(db_session, FakeRuntime(), FakeGitOps(), task_id=t.id)
     with pytest.raises(TaskAlreadyHasActiveSessionError):
         await start_session(db_session, FakeRuntime(), FakeGitOps(), task_id=t.id)
 
 
-async def test_after_stop_can_start_again(db_session, tmp_path: Path):
+async def test_after_stop_can_start_again(db_session, tmp_path: Path, catalog: Catalog):
     pid = await _seed(db_session, tmp_path)
-    t = await create_task(db_session, project_id=pid, title="T2")
+    t = await create_task(db_session, project_id=pid, title="T2", catalog=catalog)
     runtime = FakeRuntime()
     s1 = await start_session(db_session, runtime, FakeGitOps(), task_id=t.id)
     await stop_session(db_session, runtime, s1.id)

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.core.catalog import Catalog
 from orchestrator.core.sessions import (
     TaskInTerminalStateError,
     start_session,
@@ -54,9 +55,11 @@ async def setup(db_session, tmp_path: Path):
 
 
 @pytest.mark.parametrize("initial_state", ["idea", "ready", "review"])
-async def test_start_session_auto_transitions_to_in_progress(setup, initial_state: str):
+async def test_start_session_auto_transitions_to_in_progress(
+    setup, catalog: Catalog, initial_state: str,
+):
     db, runtime, git, pid = setup
-    t = await create_task(db, project_id=pid, title="T")
+    t = await create_task(db, project_id=pid, title="T", catalog=catalog)
     if initial_state == "ready":
         await update_task(db, t.id, state="ready")
     elif initial_state == "review":
@@ -68,9 +71,9 @@ async def test_start_session_auto_transitions_to_in_progress(setup, initial_stat
     assert t.state == "in_progress"
 
 
-async def test_start_session_in_progress_is_noop(setup):
+async def test_start_session_in_progress_is_noop(setup, catalog: Catalog):
     db, runtime, git, pid = setup
-    t = await create_task(db, project_id=pid, title="T")
+    t = await create_task(db, project_id=pid, title="T", catalog=catalog)
     await update_task(db, t.id, state="ready")
     await update_task(db, t.id, state="in_progress")
     await start_session(db, runtime, git, task_id=t.id)
@@ -79,9 +82,11 @@ async def test_start_session_in_progress_is_noop(setup):
 
 
 @pytest.mark.parametrize("terminal_state", ["done", "discarded"])
-async def test_start_session_in_terminal_state_raises(setup, terminal_state: str):
+async def test_start_session_in_terminal_state_raises(
+    setup, catalog: Catalog, terminal_state: str,
+):
     db, runtime, git, pid = setup
-    t = await create_task(db, project_id=pid, title="T")
+    t = await create_task(db, project_id=pid, title="T", catalog=catalog)
     if terminal_state == "done":
         await update_task(db, t.id, state="ready")
         await update_task(db, t.id, state="in_progress")
