@@ -10,6 +10,16 @@ type Props = {
   onClick?: () => void;
 };
 
+const PROFILE_COLORS: Record<string, string> = {
+  yolo: 'yellow',
+  default: 'gray',
+  'read-only': 'green',
+};
+
+function profileColor(name: string): string {
+  return PROFILE_COLORS[name] ?? 'gray';
+}
+
 export function TaskCard({ task, projects, onClick }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: task.id });
@@ -37,6 +47,26 @@ export function TaskCard({ task, projects, onClick }: Props) {
         ● {project?.name ?? task.project_id.slice(0, 6)}
       </span>
       <h4>{task.title}</h4>
+      {task.template && (
+        <span
+          data-template-name={task.template}
+          data-testid="template-badge"
+          className="template-badge"
+        >
+          {task.template}
+        </span>
+      )}
+      {task.permission_profile && (
+        <span
+          data-permission-profile={task.permission_profile}
+          data-profile-color={profileColor(task.permission_profile)}
+          data-testid="profile-badge"
+          className={`profile-badge profile-${profileColor(task.permission_profile)}`}
+          title={`Perfil: ${task.permission_profile}`}
+        >
+          {task.permission_profile}
+        </span>
+      )}
       {subTag && <span className="sub-tag">{subTag}</span>}
       {(task.state === 'in_progress' || task.state === 'review') && (
         <RunStatus taskId={task.id} />

@@ -50,4 +50,37 @@ describe('TaskCard', () => {
     expect(screen.queryByText('idea')).toBeNull();
     expect(screen.queryByText('ready')).toBeNull();
   });
+
+  it('renders template and permission_profile badges when set', () => {
+    const t: Task = { ...baseTask, template: 'bugfix', permission_profile: 'yolo' };
+    wrap(<TaskCard task={t} projects={projects} />);
+    const templateBadge = screen.getByText('bugfix');
+    expect(templateBadge).toHaveAttribute('data-template-name', 'bugfix');
+    const profileBadge = screen.getByText('yolo');
+    expect(profileBadge).toHaveAttribute('data-permission-profile', 'yolo');
+  });
+
+  it('omits badges when template/permission_profile are null', () => {
+    wrap(<TaskCard task={baseTask} projects={projects} />);
+    expect(screen.queryByTestId('template-badge')).toBeNull();
+    expect(screen.queryByTestId('profile-badge')).toBeNull();
+  });
+
+  it.each([
+    ['yolo', 'yellow'],
+    ['default', 'gray'],
+    ['read-only', 'green'],
+  ])('applies known color for profile %s → %s', (profile, color) => {
+    const t: Task = { ...baseTask, template: 'frontend', permission_profile: profile };
+    wrap(<TaskCard task={t} projects={projects} />);
+    const badge = screen.getByText(profile);
+    expect(badge.getAttribute('data-profile-color')).toBe(color);
+  });
+
+  it('applies gray color fallback for unknown profiles', () => {
+    const t: Task = { ...baseTask, template: 'custom', permission_profile: 'paranoid' };
+    wrap(<TaskCard task={t} projects={projects} />);
+    const badge = screen.getByText('paranoid');
+    expect(badge.getAttribute('data-profile-color')).toBe('gray');
+  });
 });

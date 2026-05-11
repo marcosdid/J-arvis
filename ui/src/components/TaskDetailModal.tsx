@@ -138,6 +138,18 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
         </p>
       )}
 
+      <section aria-label="task-config">
+        <h3>Configuração</h3>
+        <dl>
+          <dt>Template</dt>
+          <dd>{t.template ?? '(nenhum)'}</dd>
+          <dt>Perfil de permissão</dt>
+          <dd>{t.permission_profile ?? '(fallback)'}</dd>
+          <dt>Branch</dt>
+          <dd>{t.branch ?? '(será derivado no spawn)'}</dd>
+        </dl>
+      </section>
+
       <h4>Sessions</h4>
 
       <button

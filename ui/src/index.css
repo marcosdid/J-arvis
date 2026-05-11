@@ -69,3 +69,15 @@ button {
   border-radius: 0.3rem;
   cursor: pointer;
 }
+
+.template-badge, .profile-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  margin-right: 4px;
+}
+.template-badge { background: #e5e7eb; color: #1f2937; }
+.profile-yellow { background: #fef3c7; color: #92400e; }
+.profile-gray { background: #e5e7eb; color: #1f2937; }
+.profile-green { background: #d1fae5; color: #065f46; }

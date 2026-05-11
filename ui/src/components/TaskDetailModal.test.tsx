@@ -110,4 +110,28 @@ describe('TaskDetailModal', () => {
       expect(api.startTaskSession).toHaveBeenCalledWith('t1');
     });
   });
+
+  it('shows task config section with template + profile + branch', async () => {
+    vi.mocked(api.getTask).mockResolvedValueOnce({
+      id: 't1', project_id: 'p1', title: 'X', description: '',
+      state: 'ready', template: 'frontend', permission_profile: 'yolo',
+      branch: 'feat-ui/foo',
+      created_at: '', updated_at: '', active_session_id: null,
+    });
+    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+    await screen.findByDisplayValue('X');
+    const section = screen.getByLabelText('task-config');
+    expect(section).toHaveTextContent('frontend');
+    expect(section).toHaveTextContent('yolo');
+    expect(section).toHaveTextContent('feat-ui/foo');
+  });
+
+  it('shows fallback labels when template/profile/branch are null', async () => {
+    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+    await screen.findByDisplayValue('X');
+    const section = screen.getByLabelText('task-config');
+    expect(section).toHaveTextContent('(nenhum)');
+    expect(section).toHaveTextContent('(fallback)');
+    expect(section).toHaveTextContent('(será derivado no spawn)');
+  });
 });
