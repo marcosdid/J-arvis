@@ -29,8 +29,15 @@ from mcp.types import TextContent, Tool
 from orchestrator.core.catalog import Catalog
 from orchestrator.core.git import GitWorktreeOps
 from orchestrator.core.projects import get_project, list_projects
-from orchestrator.core.tasks import get_task, list_tasks
+from orchestrator.core.tasks import (
+    InvalidTemplateError,
+    create_task,
+    get_task,
+    list_tasks,
+    update_task,
+)
 from orchestrator.events.broadcaster import WsBroadcaster
+from orchestrator.events.envelope import WsEvent
 
 
 @dataclass
@@ -111,6 +118,56 @@ async def list_tools() -> list[Tool]:
                 "properties": {"task_id": {"type": "string"}},
             },
         ),
+        Tool(
+            name="create_task",
+            description=(
+                "Create a new task. Optionally with a template "
+                "(frontend/backend/refactor/bugfix) which auto-derives "
+                "permission_profile and branch prefix."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["project_id", "title"],
+                "properties": {
+                    "project_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "template": {
+                        "type": "string",
+                        "enum": ["frontend", "backend", "refactor", "bugfix"],
+                    },
+                    "branch": {"type": "string"},
+                },
+            },
+        ),
+        Tool(
+            name="update_task",
+            description=(
+                "Update task fields. State transitions follow F4 state "
+                "machine. NOTE: template é snapshot-at-create (F7) — não "
+                "editável aqui."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["task_id"],
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "state": {"type": "string"},
+                    "branch": {"type": "string"},
+                },
+            },
+        ),
+        Tool(
+            name="discard_task",
+            description="Move task to discarded state.",
+            inputSchema={
+                "type": "object",
+                "required": ["task_id"],
+                "properties": {"task_id": {"type": "string"}},
+            },
+        ),
     ]
 
 
@@ -146,6 +203,80 @@ async def _get_task_tool(database: Any, task_id: str) -> str:
     return json.dumps(_serialize_task(row))
 
 
+async def _broadcast_task_created(
+    broadcaster: WsBroadcaster | None,
+    task: Any,
+) -> None:
+    if broadcaster is None:
+        return
+    await broadcaster.publish(WsEvent.task_created(
+        task_id=task.id,
+        project_id=task.project_id,
+        title=task.title,
+        state=task.state,
+    ))
+
+
+async def _broadcast_task_updated(
+    broadcaster: WsBroadcaster | None,
+    task: Any,
+    previous_state: str | None,
+) -> None:
+    if broadcaster is None:
+        return
+    await broadcaster.publish(WsEvent.task_updated(
+        task_id=task.id,
+        project_id=task.project_id,
+        title=task.title,
+        new_state=task.state,
+        previous_state=previous_state or task.state,
+    ))
+
+
+async def _create_task_tool(
+    database: Any,
+    catalog: Catalog | None,
+    broadcaster: WsBroadcaster | None,
+    arguments: dict[str, Any],
+) -> str:
+    if catalog is None:
+        raise ValueError("catalog not configured for MCP server")
+    async with database.session() as s:
+        try:
+            task = await create_task(s, catalog=catalog, **arguments)
+        except InvalidTemplateError as exc:
+            raise ValueError(
+                f"template_not_in_catalog: valid={exc.valid_templates}",
+            ) from exc
+    await _broadcast_task_created(broadcaster, task)
+    return json.dumps(_serialize_task(task))
+
+
+async def _update_task_tool(
+    database: Any,
+    broadcaster: WsBroadcaster | None,
+    arguments: dict[str, Any],
+) -> str:
+    # F7: template é snapshot-at-create — não editável. core.tasks.update_task
+    # aceita apenas title?, description?, state?, branch?. Sem catalog kwarg.
+    task_id = arguments.pop("task_id")
+    async with database.session() as s:
+        task, prev_state = await update_task(s, task_id, **arguments)
+    await _broadcast_task_updated(broadcaster, task, prev_state)
+    return json.dumps(_serialize_task(task))
+
+
+async def _discard_task_tool(
+    database: Any,
+    broadcaster: WsBroadcaster | None,
+    task_id: str,
+) -> str:
+    async with database.session() as s:
+        task, prev_state = await update_task(s, task_id, state="discarded")
+    await _broadcast_task_updated(broadcaster, task, prev_state)
+    return json.dumps(_serialize_task(task))
+
+
 # SDK ships untyped decorators (mcp 1.27.1); ignore mypy noise
 @mcp_server.call_tool()  # type: ignore[untyped-decorator]
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
@@ -166,6 +297,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         )
     elif name == "get_task":
         text = await _get_task_tool(database, arguments["task_id"])
+    elif name == "create_task":
+        text = await _create_task_tool(
+            database, deps.catalog, deps.broadcaster, arguments,
+        )
+    elif name == "update_task":
+        text = await _update_task_tool(database, deps.broadcaster, arguments)
+    elif name == "discard_task":
+        text = await _discard_task_tool(
+            database, deps.broadcaster, arguments["task_id"],
+        )
     else:
         raise ValueError(f"unknown tool {name!r}")
 

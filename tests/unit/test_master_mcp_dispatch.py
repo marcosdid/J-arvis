@@ -4,8 +4,12 @@ from typing import Any
 
 import pytest
 
+from orchestrator.core.catalog import Catalog, PermissionProfileSpec
 from orchestrator.mcp.server import (
     McpDeps,
+    _broadcast_task_created,
+    _broadcast_task_updated,
+    _create_task_tool,
     call_tool,
     list_tools,
     reset_deps,
@@ -13,10 +17,15 @@ from orchestrator.mcp.server import (
 )
 
 
-async def test_list_tools_returns_4_read_only_tools() -> None:
+async def test_list_tools_returns_read_and_write_tools() -> None:
     tools = await list_tools()
     names = [t.name for t in tools]
-    assert set(names) == {"list_projects", "get_project", "list_tasks", "get_task"}
+    assert set(names) == {
+        # F8.c read-only
+        "list_projects", "get_project", "list_tasks", "get_task",
+        # F8.d write tools
+        "create_task", "update_task", "discard_task",
+    }
 
 
 class _FakeSession:
@@ -187,3 +196,75 @@ async def test_call_tool_get_task_returns_single() -> None:
     assert payload["id"] == "t9"
     assert payload["branch"] == "feat/x"
     assert payload["permission_profile"] == "dev"
+
+
+# --- F8.d: write tools coverage ---------------------------------------------
+
+
+class _RecordingBroadcaster:
+    """In-memory WsBroadcaster stub. Captures published events."""
+
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    async def publish(self, event: Any) -> None:
+        self.events.append(event)
+
+
+async def test_broadcast_task_created_publishes_event() -> None:
+    b = _RecordingBroadcaster()
+    task = _FakeRow(id="t1", project_id="p1", title="x", state="idea")
+    await _broadcast_task_created(b, task)
+    assert len(b.events) == 1
+    assert b.events[0].type == "task.created"
+    assert b.events[0].task_id == "t1"
+
+
+async def test_broadcast_task_updated_publishes_event() -> None:
+    b = _RecordingBroadcaster()
+    task = _FakeRow(id="t1", project_id="p1", title="x", state="ready")
+    await _broadcast_task_updated(b, task, previous_state="idea")
+    assert len(b.events) == 1
+    assert b.events[0].type == "task.updated"
+    assert b.events[0].payload["previous_state"] == "idea"
+
+
+async def test_broadcast_task_updated_falls_back_to_new_state_when_no_prev() -> None:
+    # `discard_task` é chamado em qualquer estado; se task já estava em
+    # `discarded`, core.update_task retorna previous_state=None. Garantimos
+    # que broadcast NÃO envia None — manda new_state como fallback.
+    b = _RecordingBroadcaster()
+    task = _FakeRow(id="t1", project_id="p1", title="x", state="discarded")
+    await _broadcast_task_updated(b, task, previous_state=None)
+    assert b.events[0].payload["previous_state"] == "discarded"
+
+
+async def test_create_task_tool_requires_catalog() -> None:
+    deps = McpDeps(db=_FakeDb(), catalog=None, broadcaster=None, git_ops=None)
+    with pytest.raises(ValueError, match="catalog not configured"):
+        await _create_task_tool(
+            deps.db, deps.catalog, deps.broadcaster,
+            {"project_id": "p1", "title": "t"},
+        )
+
+
+async def test_create_task_tool_translates_invalid_template_error() -> None:
+    # Mock catalog com `templates` vazio → core.create_task levanta
+    # InvalidTemplateError. _create_task_tool re-empacota como ValueError
+    # com mensagem que vira erro JSON-RPC pelo SDK MCP.
+    catalog = Catalog(
+        version="1",
+        fallback_permission_profile="default",
+        permission_profiles={
+            "default": PermissionProfileSpec(
+                description="default", claude_args=[],
+            ),
+        },
+        templates={},
+    )
+    db = _ScriptedDb([_RecordingSession()])
+    with pytest.raises(ValueError, match="template_not_in_catalog"):
+        await _create_task_tool(
+            db, catalog, None,
+            {"project_id": "p1", "title": "t", "template": "ghost"},
+        )

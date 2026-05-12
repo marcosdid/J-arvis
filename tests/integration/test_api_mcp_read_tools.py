@@ -66,7 +66,10 @@ async def test_tools_list_returns_read_tools(
     assert "list_projects" in tool_names
     assert "get_task" in tool_names
     assert set(tool_names) == {
+        # F8.c read-only
         "list_projects", "get_project", "list_tasks", "get_task",
+        # F8.d write tools
+        "create_task", "update_task", "discard_task",
     }
 
 
