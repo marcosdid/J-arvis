@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useWebSocketRTT } from './useWebSocketRTT';
 
 class FakeWS {
-  readyState = WebSocket.OPEN;
+  readyState: number = WebSocket.OPEN;
   sent: string[] = [];
   onmessage: ((ev: MessageEvent) => void) | null = null;
   send(s: string) { this.sent.push(s); }
@@ -20,7 +20,7 @@ describe('useWebSocketRTT', () => {
     const ws = new FakeWS();
     const { result } = renderHook(() => useWebSocketRTT(ws as unknown as WebSocket));
     await act(async () => { vi.advanceTimersByTime(1000); });
-    const sent = JSON.parse(ws.sent[0]);
+    const sent = JSON.parse(ws.sent[0]!);
     expect(sent.type).toBe('ping');
     await act(async () => {
       ws.onmessage?.({ data: JSON.stringify({ type: 'pong', ts: sent.ts }) } as MessageEvent);
