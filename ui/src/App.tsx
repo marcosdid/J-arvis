@@ -7,6 +7,7 @@ import { queryKeys } from './lib/query-keys';
 import { useSessionEvents } from './hooks/useSessionEvents';
 
 import { Kanban } from './components/Kanban';
+import { MasterSidebar } from './components/MasterSidebar';
 import { NewTaskForm } from './components/NewTaskForm';
 import { ProjectFilters } from './components/ProjectFilters';
 import { ProjectsDrawer } from './components/ProjectsDrawer';
@@ -41,26 +42,29 @@ export function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   return (
-    <main>
-      <header>
-        <h1>J-arvis</h1>
-        <button onClick={() => setDrawerOpen(true)}>Projetos ▾</button>
-      </header>
-      <ProjectFilters
-        projects={projects.data ?? []}
-        active={filters}
-        onChange={setFilters}
-      />
-      <Kanban filters={filters} onCardClick={setSelectedTaskId} />
-      <NewTaskForm projects={projects.data ?? []} />
-
-      <ProjectsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
-      {selectedTaskId && (
-        <TaskDetailModal
-          taskId={selectedTaskId}
-          onClose={() => setSelectedTaskId(null)}
+    <div className="app-layout">
+      <main className="app-main">
+        <header>
+          <h1>J-arvis</h1>
+          <button onClick={() => setDrawerOpen(true)}>Projetos ▾</button>
+        </header>
+        <ProjectFilters
+          projects={projects.data ?? []}
+          active={filters}
+          onChange={setFilters}
         />
-      )}
-    </main>
+        <Kanban filters={filters} onCardClick={setSelectedTaskId} />
+        <NewTaskForm projects={projects.data ?? []} />
+
+        <ProjectsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+        {selectedTaskId && (
+          <TaskDetailModal
+            taskId={selectedTaskId}
+            onClose={() => setSelectedTaskId(null)}
+          />
+        )}
+      </main>
+      <MasterSidebar />
+    </div>
   );
 }

@@ -1,7 +1,17 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -141,4 +151,23 @@ class RunInstance(Base):
             unique=True,
             sqlite_where=text("ended_at IS NULL"),
         ),
+    )
+
+
+class MasterSession(Base):
+    """Singleton: só pode existir 1 row com id='singleton'."""
+    __tablename__ = "master_session"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default="singleton")
+    claude_session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now,
+    )
+    last_active: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now,
+    )
+
+    __table_args__ = (
+        CheckConstraint("id = 'singleton'", name="ck_master_singleton"),
     )

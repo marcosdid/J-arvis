@@ -6,6 +6,9 @@
 
 body {
   margin: 0;
+}
+
+.app-main {
   padding: 1.5rem;
   max-width: 960px;
   margin-inline: auto;
@@ -81,3 +84,53 @@ button {
 .profile-yellow { background: #fef3c7; color: #92400e; }
 .profile-gray { background: #e5e7eb; color: #1f2937; }
 .profile-green { background: #d1fae5; color: #065f46; }
+
+.app-layout {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  height: 100vh;
+}
+
+.app-main {
+  overflow: auto;
+}
+
+.master-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  height: 100vh;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-left: 1px solid #334155;
+}
+
+.master-sidebar header {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+  background: #0f172a;
+}
+
+.master-sidebar header h3 {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.master-sidebar header .hint {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.master-term {
+  flex: 1;
+  padding: 4px;
+}
+
+.system-msg {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.system-msg.warn { background: #78350f; color: #fef3c7; }
+.system-msg.error { background: #7f1d1d; color: #fee2e2; }
