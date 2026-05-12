@@ -22,8 +22,8 @@ def upgrade() -> None:
         sa.Column("id", sa.String(), primary_key=True),
         sa.Column("claude_session_id", sa.String(64), nullable=False),
         sa.Column("pid", sa.Integer(), nullable=True),
-        sa.Column("started_at", sa.DateTime(), nullable=False),
-        sa.Column("last_active", sa.DateTime(), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("last_active", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("id = 'singleton'", name="ck_master_singleton"),
     )
 

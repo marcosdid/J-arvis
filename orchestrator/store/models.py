@@ -161,8 +161,12 @@ class MasterSession(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default="singleton")
     claude_session_id: Mapped[str] = mapped_column(String(64), nullable=False)
     pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    last_active: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now,
+    )
+    last_active: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now,
+    )
 
     __table_args__ = (
         CheckConstraint("id = 'singleton'", name="ck_master_singleton"),
