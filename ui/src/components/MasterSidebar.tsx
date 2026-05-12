@@ -36,7 +36,9 @@ export function MasterSidebar() {
         if (msg.type === 'output') {
           term.write(msg.data);
         } else if (msg.type === 'system') {
-          setSystemMsg({ level: msg.level, message: msg.message });
+          const level = msg.level === 'warn' || msg.level === 'error' ? msg.level : 'error';
+          const message = typeof msg.message === 'string' ? msg.message : 'unknown system message';
+          setSystemMsg({ level, message });
         }
       } catch {
         // ignore parse errors — server is the trusted source
