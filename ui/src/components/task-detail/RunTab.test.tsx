@@ -2,10 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Run } from '../lib/api';
+import type { Run } from '../../lib/api';
 import { RunTab } from './RunTab';
 
-vi.mock('../lib/api', () => ({
+vi.mock('../../lib/api', () => ({
   api: {
     getActiveRun: vi.fn(),
     startRun: vi.fn(),
@@ -13,11 +13,11 @@ vi.mock('../lib/api', () => ({
     bootstrapManifest: vi.fn(),
   },
 }));
-vi.mock('../lib/runSseClient', () => ({
+vi.mock('../../lib/runSseClient', () => ({
   createLogsSse: vi.fn(() => ({ close: vi.fn() })),
 }));
 
-import { api } from '../lib/api';
+import { api } from '../../lib/api';
 
 function wrap(taskId = 't1') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

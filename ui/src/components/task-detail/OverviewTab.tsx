@@ -1,15 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
-import { queryKeys } from '../lib/query-keys';
-import { isValidTransition } from '../lib/transitions';
-import { translateError } from '../lib/errorMessages';
-import { usePatchTask, useStartTaskSession } from '../hooks/useTaskMutations';
-import { RunTab } from './RunTab';
+import { api, type Task } from '../../lib/api';
+import { queryKeys } from '../../lib/query-keys';
+import { isValidTransition } from '../../lib/transitions';
+import { translateError } from '../../lib/errorMessages';
+import { usePatchTask, useStartTaskSession } from '../../hooks/useTaskMutations';
 
 const ALL_STATES = ['idea', 'ready', 'in_progress', 'review', 'done', 'discarded'];
-
-type Props = { taskId: string; onClose: () => void };
 
 function BranchEditField({
   value,
@@ -41,66 +38,56 @@ function BranchEditField({
   );
 }
 
-export function TaskDetailModal({ taskId, onClose }: Props) {
+type Props = { task: Task };
+
+export function OverviewTab({ task }: Props) {
   const qc = useQueryClient();
-  const task = useQuery({
-    queryKey: queryKeys.task(taskId),
-    queryFn: () => api.getTask(taskId),
-  });
   const worktrees = useQuery({
-    queryKey: task.data ? queryKeys.worktrees(task.data.project_id) : ['worktrees', '__pending__'],
-    queryFn: () => api.listWorktrees(task.data!.project_id),
-    enabled: !!task.data,
+    queryKey: queryKeys.worktrees(task.project_id),
+    queryFn: () => api.listWorktrees(task.project_id),
   });
   const patch = usePatchTask();
   const start = useStartTaskSession();
   const branchPatch = useMutation({
-    mutationFn: (branch: string) => api.patchTask(taskId, { branch }),
+    mutationFn: (branch: string) => api.patchTask(task.id, { branch }),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.tasks }),
   });
 
-  const [titleDraft, setTitleDraft] = useState('');
-  const [descDraft, setDescDraft] = useState('');
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const [descDraft, setDescDraft] = useState(task.description);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (task.data) {
-      setTitleDraft(task.data.title);
-      setDescDraft(task.data.description);
-    }
-  }, [task.data?.id, task.data?.title, task.data?.description]);
+    setTitleDraft(task.title);
+    setDescDraft(task.description);
+  }, [task.id, task.title, task.description]);
 
   // Debounced PATCH for title/description
   useEffect(() => {
-    if (!task.data) return;
-    if (titleDraft === task.data.title && descDraft === task.data.description) return;
+    if (titleDraft === task.title && descDraft === task.description) return;
     if (!titleDraft.trim()) return;
     const tid = setTimeout(() => {
       const update: Record<string, string> = {};
-      if (titleDraft !== task.data!.title) update.title = titleDraft;
-      if (descDraft !== task.data!.description) update.description = descDraft;
+      if (titleDraft !== task.title) update.title = titleDraft;
+      if (descDraft !== task.description) update.description = descDraft;
       if (Object.keys(update).length === 0) return;
-      patch.mutate({ id: taskId, patch: update });
+      patch.mutate({ id: task.id, patch: update });
     }, 500);
     return () => clearTimeout(tid);
-    // deps limited to draft values — task.data read via closure, not as a trigger
+    // deps limited to draft values — task read via closure, not as a trigger
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleDraft, descDraft]);
 
-  if (!task.data) return null;
-  const t = task.data;
-
   const moveTargets = ALL_STATES.filter(
-    (s) => s !== t.state && isValidTransition(t.state, s),
+    (s) => s !== task.state && isValidTransition(task.state, s),
   );
 
-  const isTerminal = t.state === 'done' || t.state === 'discarded';
-  const taskWorktrees = (worktrees.data ?? []).filter((w) => w.task_id === taskId);
+  const isTerminal = task.state === 'done' || task.state === 'discarded';
+  const taskWorktrees = (worktrees.data ?? []).filter((w) => w.task_id === task.id);
   const hasWorktrees = taskWorktrees.length > 0;
 
   return (
-    <div role="dialog" className="modal" aria-label={t.title}>
-      <button onClick={onClose} aria-label="close">✕</button>
+    <div>
       <input
         aria-label="title"
         value={titleDraft}
@@ -118,7 +105,7 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
           value=""
           onChange={(e) => {
             if (!e.target.value) return;
-            patch.mutate({ id: taskId, patch: { state: e.target.value } });
+            patch.mutate({ id: task.id, patch: { state: e.target.value } });
           }}
         >
           <option value="">—</option>
@@ -128,13 +115,13 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
 
       {!hasWorktrees && (
         <BranchEditField
-          value={t.branch ?? ''}
+          value={task.branch ?? ''}
           onChange={(v) => branchPatch.mutate(v)}
         />
       )}
-      {hasWorktrees && t.branch && (
+      {hasWorktrees && task.branch && (
         <p>
-          Branch: <code>{t.branch}</code> <em>(imutável após 1ª sessão)</em>
+          Branch: <code>{task.branch}</code> <em>(imutável após 1ª sessão)</em>
         </p>
       )}
 
@@ -142,21 +129,19 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
         <h3>Configuração</h3>
         <dl>
           <dt>Template</dt>
-          <dd>{t.template ?? '(nenhum)'}</dd>
+          <dd>{task.template ?? '(nenhum)'}</dd>
           <dt>Perfil de permissão</dt>
-          <dd>{t.permission_profile ?? '(fallback)'}</dd>
+          <dd>{task.permission_profile ?? '(fallback)'}</dd>
           <dt>Branch</dt>
-          <dd>{t.branch ?? '(será derivado no spawn)'}</dd>
+          <dd>{task.branch ?? '(será derivado no spawn)'}</dd>
         </dl>
       </section>
-
-      <h4>Sessions</h4>
 
       <button
         disabled={isTerminal}
         onClick={() =>
           start.mutate(
-            { taskId },
+            { taskId: task.id },
             {
               onError: (err: unknown) =>
                 setError(translateError((err as Error).message ?? String(err))),
@@ -180,13 +165,6 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
               </li>
             ))}
           </ul>
-        </details>
-      )}
-
-      {(t.state === 'in_progress' || t.state === 'review') && (
-        <details className="run-tab-details">
-          <summary>Run</summary>
-          <RunTab taskId={taskId} />
         </details>
       )}
     </div>

@@ -12,7 +12,7 @@ import { MasterSidebar } from './components/MasterSidebar';
 import { NewTaskForm } from './components/NewTaskForm';
 import { ProjectFilters } from './components/ProjectFilters';
 import { ProjectsDrawer } from './components/ProjectsDrawer';
-import { TaskDetailModal } from './components/TaskDetailModal';
+import { TaskDetailSheet } from './components/task-detail/TaskDetailSheet';
 
 export function App() {
   const queryClient = useQueryClient();
@@ -71,12 +71,10 @@ export function App() {
         <NewTaskForm projects={projects.data ?? []} />
 
         <ProjectsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
-        {selectedTaskId && (
-          <TaskDetailModal
-            taskId={selectedTaskId}
-            onClose={() => setSelectedTaskId(null)}
-          />
-        )}
+        <TaskDetailSheet
+          taskId={selectedTaskId}
+          onClose={() => setSelectedTaskId(null)}
+        />
       </AppShell>
       <MasterSidebar />
     </div>

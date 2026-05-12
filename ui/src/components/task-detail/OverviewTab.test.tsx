@@ -1,10 +1,11 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { TaskDetailModal } from './TaskDetailModal';
+import { OverviewTab } from './OverviewTab';
+import type { Task } from '../../lib/api';
 
-vi.mock('../lib/api', async () => {
-  const actual = await vi.importActual('../lib/api');
+vi.mock('../../lib/api', async () => {
+  const actual = await vi.importActual('../../lib/api');
   return {
     ...actual,
     api: {
@@ -16,15 +17,16 @@ vi.mock('../lib/api', async () => {
   };
 });
 
-import { api } from '../lib/api';
+import { api } from '../../lib/api';
+
+const BASE_TASK: Task = {
+  id: 't1', project_id: 'p1', title: 'X', description: 'D',
+  state: 'ready', template: null, permission_profile: null, branch: null,
+  created_at: '', updated_at: '', active_session_id: null,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(api.getTask).mockResolvedValue({
-    id: 't1', project_id: 'p1', title: 'X', description: 'D',
-    state: 'ready', template: null, permission_profile: null, branch: null,
-    created_at: '', updated_at: '', active_session_id: null,
-  });
   vi.mocked(api.patchTask).mockResolvedValue({} as never);
   vi.mocked(api.startTaskSession).mockResolvedValue({} as never);
   vi.mocked(api.listWorktrees).mockResolvedValue([
@@ -40,14 +42,18 @@ beforeEach(() => {
   ]);
 });
 
-function wrap(ui: React.ReactElement) {
+function wrap(task: Task = BASE_TASK) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={qc}>
+      <OverviewTab task={task} />
+    </QueryClientProvider>,
+  );
 }
 
-describe('TaskDetailModal', () => {
+describe('OverviewTab', () => {
   it('lists only valid Move-to states from current state ready', async () => {
-    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+    wrap();
     await screen.findByDisplayValue('X');
     const select = screen.getByLabelText(/move to/i) as HTMLSelectElement;
     const opts = Array.from(select.options).map((o) => o.value).filter(Boolean);
@@ -58,29 +64,19 @@ describe('TaskDetailModal', () => {
   });
 
   it('disables iniciar sessão when state is done', async () => {
-    vi.mocked(api.getTask).mockResolvedValueOnce({
-      id: 't1', project_id: 'p1', title: 'X', description: '',
-      state: 'done', template: null, permission_profile: null, branch: null,
-      created_at: '', updated_at: '', active_session_id: null,
-    });
-    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+    wrap({ ...BASE_TASK, state: 'done', description: '' });
     const btn = await screen.findByRole('button', { name: /iniciar sessão/i });
     expect(btn).toBeDisabled();
   });
 
   it('disables iniciar sessão when state is discarded', async () => {
-    vi.mocked(api.getTask).mockResolvedValueOnce({
-      id: 't1', project_id: 'p1', title: 'X', description: '',
-      state: 'discarded', template: null, permission_profile: null, branch: null,
-      created_at: '', updated_at: '', active_session_id: null,
-    });
-    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+    wrap({ ...BASE_TASK, state: 'discarded', description: '' });
     const btn = await screen.findByRole('button', { name: /iniciar sessão/i });
     expect(btn).toBeDisabled();
   });
 
   it('debounces title PATCH (single call after rapid changes)', async () => {
-    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+    wrap();
     const input = (await screen.findByDisplayValue('X')) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Y' } });
     fireEvent.change(input, { target: { value: 'Y2' } });
@@ -92,7 +88,7 @@ describe('TaskDetailModal', () => {
   });
 
   it('Move-to dropdown PATCH calls', async () => {
-    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+    wrap();
     await screen.findByDisplayValue('X');
     const select = screen.getByLabelText(/move to/i) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: 'in_progress' } });
@@ -101,8 +97,8 @@ describe('TaskDetailModal', () => {
     });
   });
 
-  it('iniciar sessão calls startTaskSession with task id (sem worktree picker)', async () => {
-    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+  it('iniciar sessão calls startTaskSession with task id', async () => {
+    wrap();
     await screen.findByDisplayValue('X');
     const btn = screen.getByRole('button', { name: /iniciar sessão/i });
     fireEvent.click(btn);
@@ -112,13 +108,13 @@ describe('TaskDetailModal', () => {
   });
 
   it('shows task config section with template + profile + branch', async () => {
-    vi.mocked(api.getTask).mockResolvedValueOnce({
-      id: 't1', project_id: 'p1', title: 'X', description: '',
-      state: 'ready', template: 'frontend', permission_profile: 'yolo',
+    wrap({
+      ...BASE_TASK,
+      template: 'frontend',
+      permission_profile: 'yolo',
       branch: 'feat-ui/foo',
-      created_at: '', updated_at: '', active_session_id: null,
+      description: '',
     });
-    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
     await screen.findByDisplayValue('X');
     const section = screen.getByLabelText('task-config');
     expect(section).toHaveTextContent('frontend');
@@ -127,7 +123,7 @@ describe('TaskDetailModal', () => {
   });
 
   it('shows fallback labels when template/profile/branch are null', async () => {
-    wrap(<TaskDetailModal taskId="t1" onClose={() => {}} />);
+    wrap();
     await screen.findByDisplayValue('X');
     const section = screen.getByLabelText('task-config');
     expect(section).toHaveTextContent('(nenhum)');

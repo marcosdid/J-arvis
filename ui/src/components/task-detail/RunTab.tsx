@@ -1,14 +1,14 @@
 import { useState } from 'react';
 
-import { useRun, useStartRun, useStopRun } from '../hooks/useRun';
-import { BootstrapModal } from './BootstrapModal';
-import { RunLogsPanel } from './RunLogsPanel';
-import { ServiceStatusBadge } from './ServiceStatusBadge';
+import { useRun, useStartRun, useStopRun } from '../../hooks/useRun';
+import { BootstrapModal } from '../BootstrapModal';
+import { RunLogsPanel } from '../RunLogsPanel';
+import { ServiceStatusBadge } from '../ServiceStatusBadge';
 
 type Props = { taskId: string };
 
 /**
- * F6.j — aba "Run" do `TaskDetailModal`.
+ * F6.j — aba "Run" do TaskDetailSheet.
  *
  * Visão expandida da run da task: badge per-service + URLs clicáveis +
  * painel de logs streamados via SSE. Quando não há run ativa, expõe
