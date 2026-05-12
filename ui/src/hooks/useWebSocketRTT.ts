@@ -6,6 +6,7 @@ export function useWebSocketRTT(ws: WebSocket | null): number | null {
 
   useEffect(() => {
     if (!ws) return;
+    inflightRef.current = null;
 
     const handler = (ev: MessageEvent) => {
       try {
