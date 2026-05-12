@@ -291,6 +291,7 @@ export default {
 @import '@fontsource/space-grotesk/600.css';
 @import '@fontsource/space-grotesk/700.css';
 @import "tailwindcss";
+@config "../tailwind.config.ts";  /* REQUIRED: Tailwind v4 does not auto-discover JS configs */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
@@ -305,7 +306,7 @@ body {
 /* Scanlines overlay (CIPHER identity) */
 body::before {
   content: '';
-  position: fixed; inset: 0; pointer-events: none; z-index: 1000;
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
   background-image: repeating-linear-gradient(
     0deg,
     transparent 0px,
