@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { dispatch } from '../lib/events';
 import { queryKeys } from '../lib/query-keys';
 import { connectWs } from '../lib/ws';
+import { useWsConnectionStore } from '../stores/wsConnection';
 
 export type WorktreeOrphanedToastEmitter = (msg: string) => void;
 
@@ -12,6 +13,7 @@ export function useSessionEvents(
   emitToast?: WorktreeOrphanedToastEmitter,
 ): void {
   useEffect(() => {
+    const setWsState = useWsConnectionStore.getState().setState;
     const conn = connectWs((event) => {
       dispatch(event, {
         'session.status': () => {
@@ -71,7 +73,7 @@ export function useSessionEvents(
           }
         },
       });
-    });
+    }, setWsState);
     return () => conn.disconnect();
   }, [queryClient, emitToast]);
 }

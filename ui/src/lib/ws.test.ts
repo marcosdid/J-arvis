@@ -99,4 +99,41 @@ describe('connectWs', () => {
     vi.advanceTimersByTime(1000);
     expect(MockWebSocket.instances).toHaveLength(3);
   });
+
+  it('calls onStateChange("connecting") before opening socket', () => {
+    const onStateChange = vi.fn();
+    connectWs(() => {}, onStateChange);
+    expect(onStateChange).toHaveBeenCalledWith('connecting');
+  });
+
+  it('calls onStateChange("connected") on open', () => {
+    const onStateChange = vi.fn();
+    connectWs(() => {}, onStateChange);
+    instanceAt(0).onopen?.(new Event('open'));
+    expect(onStateChange).toHaveBeenCalledWith('connected');
+  });
+
+  it('calls onStateChange("reconnecting") on close when not stopped', () => {
+    const onStateChange = vi.fn();
+    connectWs(() => {}, onStateChange);
+    instanceAt(0).onclose?.(new CloseEvent('close'));
+    expect(onStateChange).toHaveBeenCalledWith('reconnecting');
+  });
+
+  it('calls onStateChange("offline") on close when stopped', () => {
+    const onStateChange = vi.fn();
+    const conn = connectWs(() => {}, onStateChange);
+    conn.disconnect();
+    instanceAt(0).onclose?.(new CloseEvent('close'));
+    expect(onStateChange).toHaveBeenCalledWith('offline');
+  });
+
+  it('works without onStateChange (no crash)', () => {
+    expect(() => {
+      const conn = connectWs(() => {});
+      instanceAt(0).onopen?.(new Event('open'));
+      instanceAt(0).onclose?.(new CloseEvent('close'));
+      conn.disconnect();
+    }).not.toThrow();
+  });
 });
