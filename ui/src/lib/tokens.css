@@ -1,0 +1,41 @@
+/* Design tokens — CIPHER v2 identity
+ * Reference: docs/superpowers/specs/2026-05-12-ui-redesign-design.md §4.2
+ * Note: tons exatos sujeitos a refinamento na fase 17 (less green-dominance).
+ */
+
+:root {
+  /* Background scale */
+  --bg-void: #030503;
+  --bg-deep: #060906;
+  --bg-surface: #080c08;
+  --bg-elevated: #0c100c;
+  --bg-muted: #0a0d0a;
+
+  /* Border scale */
+  --border-subtle: #1a2a1a;
+  --border-mid: #2a3a2a;
+  --border-strong: #4ade80;
+
+  /* Text scale */
+  --text-faint: #3a4a3a;
+  --text-subtle: #5a6a5a;
+  --text-body: #6a7a6a;
+  --text-emphasis: #b8c4b3;
+  --text-title: #d4e4d0;
+
+  /* Accent + semantic */
+  --accent-primary: #4ade80;
+  --accent-attn: #ff10f0;
+  --accent-info: #00d4ff;
+  --semantic-error: #f87171;
+  --semantic-warn: #fbbf24;
+  --semantic-frontend: #00d4ff;
+  --semantic-backend: #4ade80;
+  --semantic-bugfix: #f87171;
+  --semantic-refactor: #c084fc;
+  --semantic-review: #a855f7;
+
+  /* Typography */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+}
