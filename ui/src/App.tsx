@@ -6,6 +6,7 @@ import { loadFilters, saveFilters } from './lib/kanbanFilters';
 import { queryKeys } from './lib/query-keys';
 import { useSessionEvents } from './hooks/useSessionEvents';
 
+import { AppShell } from './app/AppShell';
 import { Kanban } from './components/Kanban';
 import { MasterSidebar } from './components/MasterSidebar';
 import { NewTaskForm } from './components/NewTaskForm';
@@ -20,6 +21,11 @@ export function App() {
   const projects = useQuery({
     queryKey: queryKeys.projects,
     queryFn: api.listProjects,
+  });
+
+  const tasks = useQuery({
+    queryKey: queryKeys.tasks,
+    queryFn: () => api.listTasks(),
   });
 
   const knownIds = useMemo(
@@ -41,13 +47,21 @@ export function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
+  const projectsCount = projects.data?.length ?? 0;
+  const tasksCount = tasks.data?.length ?? 0;
+  const activeCount = (tasks.data ?? []).filter((t) => t.state === 'in_progress').length;
+
   return (
-    <div className="app-layout">
-      <main className="app-main">
-        <header>
-          <h1>J-arvis</h1>
-          <button onClick={() => setDrawerOpen(true)}>Projetos ▾</button>
-        </header>
+    <div className="grid grid-cols-[1fr_400px] h-screen overflow-hidden">
+      <AppShell
+        projectsCount={projectsCount}
+        tasksCount={tasksCount}
+        activeCount={activeCount}
+        wsRtt={null}
+        onToggleProjects={() => setDrawerOpen(true)}
+        onNewTask={() => { /* placeholder — Phase 11 wires NewTaskSheet */ }}
+        onFilter={() => { /* placeholder — Phase 13 wires filter */ }}
+      >
         <ProjectFilters
           projects={projects.data ?? []}
           active={filters}
@@ -63,7 +77,7 @@ export function App() {
             onClose={() => setSelectedTaskId(null)}
           />
         )}
-      </main>
+      </AppShell>
       <MasterSidebar />
     </div>
   );
