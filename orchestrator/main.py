@@ -108,10 +108,10 @@ async def _master_shutdown(_app: FastAPI, database: Database | None) -> None:
     if getattr(_app.state, "master_handle", None):
         with contextlib.suppress(ProcessLookupError):
             _app.state.master_pty_ops.kill(_app.state.master_handle.pid)
-        if database is not None:  # pragma: no branch
+        if database is not None:  # pragma: no branch  # _master_shutdown only reachable via _lifespan, which requires database is not None
             async with database.session() as s:
                 master = await s.get(MasterSession, "singleton")
-                if master:  # pragma: no branch
+                if master:  # pragma: no branch  # master_handle existence (outer guard) implies the singleton row exists
                     master.pid = None
                     await s.commit()
 

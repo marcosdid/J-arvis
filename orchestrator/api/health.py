@@ -36,6 +36,8 @@ async def get_health(
         .where(ClaudeSession.status == "awaiting_response")
     )
     return HealthResponse(
+        # psutil.cpu_percent(interval=None) returns 0.0 on the first call (no prior baseline).
+        # UI consumers (useSystemHealth) must treat cpu_pct=0 on the first poll as indeterminate.
         cpu_pct=psutil.cpu_percent(interval=None),
         mem_used_bytes=mem.used,
         mem_total_bytes=mem.total,
