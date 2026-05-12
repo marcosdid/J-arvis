@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
-import { api } from '../lib/api';
-import { queryKeys } from '../lib/query-keys';
-import { ProjectNode } from './ProjectNode';
+import { api } from '../../lib/api';
+import { queryKeys } from '../../lib/query-keys';
+import { ProjectNode } from '../ProjectNode';
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 type Props = { open: boolean; onClose: () => void };
 
@@ -15,24 +16,28 @@ export function ProjectsDrawer({ open, onClose }: Props) {
     enabled: open,
   });
 
-  if (!open) return null;
-
   return (
-    <aside role="dialog" aria-label="projects-drawer" className="drawer">
-      <header>
-        <h2>Projetos & Worktrees</h2>
-        <button onClick={onClose} aria-label="close-drawer">✕</button>
-      </header>
-      <CreateProjectForm />
-      {projects.data?.map((p) => (
-        <ProjectNode key={p.id} project={p} onError={setToast} />
-      ))}
-      {toast && (
-        <p role="alert" className="toast" onClick={() => setToast(null)}>
-          {toast}
-        </p>
-      )}
-    </aside>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent side="left" className="w-[420px] sm:max-w-[420px] bg-bg-surface border-r border-border-subtle">
+        <SheetHeader>
+          <SheetTitle className="font-display text-text-emphasis tracking-[0.08em] uppercase text-sm">
+            Projetos & Worktrees
+          </SheetTitle>
+        </SheetHeader>
+        <SheetClose asChild>
+          <button onClick={onClose} aria-label="close-drawer" className="sr-only">✕</button>
+        </SheetClose>
+        <CreateProjectForm />
+        {projects.data?.map((p) => (
+          <ProjectNode key={p.id} project={p} onError={setToast} />
+        ))}
+        {toast && (
+          <p role="alert" className="toast" onClick={() => setToast(null)}>
+            {toast}
+          </p>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 

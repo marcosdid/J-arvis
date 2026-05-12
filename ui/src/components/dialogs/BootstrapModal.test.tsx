@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BootstrapModal } from './BootstrapModal';
 
-vi.mock('../lib/api', () => ({
+vi.mock('../../lib/api', () => ({
   api: { bootstrapManifest: vi.fn() },
 }));
 
-import { api } from '../lib/api';
+import { api } from '../../lib/api';
 
 function wrap(onClose = vi.fn()) {
   const qc = new QueryClient();

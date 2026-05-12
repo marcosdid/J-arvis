@@ -11,7 +11,7 @@ import { Kanban } from './components/kanban/Kanban';
 import { MasterSidebar } from './components/master/MasterSidebar';
 import { NewTaskSheet } from './components/drawers/NewTaskSheet';
 import { ProjectFilters } from './components/ProjectFilters';
-import { ProjectsDrawer } from './components/ProjectsDrawer';
+import { ProjectsDrawer } from './components/drawers/ProjectsDrawer';
 import { TaskDetailSheet } from './components/task-detail/TaskDetailSheet';
 
 export function App() {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import { useRun, useStartRun, useStopRun } from '../hooks/useRun';
-import { BootstrapModal } from './BootstrapModal';
+import { BootstrapModal } from './dialogs/BootstrapModal';
 
 type Props = { taskId: string };
 
