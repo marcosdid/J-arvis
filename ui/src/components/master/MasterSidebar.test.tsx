@@ -27,6 +27,7 @@ class MockWebSocket {
   readyState = 0;
   url: string;
   sentMessages: string[] = [];
+  private _listeners: Map<string, Set<EventListener>> = new Map();
 
   constructor(url: string) {
     this.url = url;
@@ -39,6 +40,13 @@ class MockWebSocket {
     this.sentMessages.push(data);
   }
   close() {}
+  addEventListener(type: string, listener: EventListener) {
+    if (!this._listeners.has(type)) this._listeners.set(type, new Set());
+    this._listeners.get(type)!.add(listener);
+  }
+  removeEventListener(type: string, listener: EventListener) {
+    this._listeners.get(type)?.delete(listener);
+  }
 }
 
 describe('MasterSidebar', () => {
@@ -64,7 +72,7 @@ describe('MasterSidebar', () => {
   it('renders sidebar with header', () => {
     render(<MasterSidebar />);
     expect(screen.getByLabelText('master-session')).toBeInTheDocument();
-    expect(screen.getByText('Claude master')).toBeInTheDocument();
+    expect(screen.getByText('master_001')).toBeInTheDocument();
   });
 
   it('opens WebSocket to /ws/master', async () => {
