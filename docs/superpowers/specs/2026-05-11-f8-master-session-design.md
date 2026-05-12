@@ -506,6 +506,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         master_cwd = Path.home() / ".local" / "share" / "j-arvis" / "master"
         master_cwd.mkdir(parents=True, exist_ok=True)
 
+        # Runtime instance (SubprocessPtyOps em prod; FakePtyOps em tests via param)
+        pty_ops = SubprocessPtyOps()
+        master_runtime = MasterSessionRuntime(pty_ops)
+
         try:
             handle = await master_runtime.spawn(
                 cwd=master_cwd,
