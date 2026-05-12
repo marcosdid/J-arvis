@@ -1845,6 +1845,13 @@ No `lifespan`, substituir/estender:
         yield
 
         # Shutdown
+        # Cancela watchdog se ainda pending (evita "Task was destroyed" warning)
+        watchdog = getattr(_app.state, "_master_watchdog", None)
+        if watchdog and not watchdog.done():
+            watchdog.cancel()
+            import contextlib
+            with contextlib.suppress(asyncio.CancelledError):
+                await watchdog
         if getattr(_app.state, "master_multiplexer", None):
             await _app.state.master_multiplexer.shutdown()
         if getattr(_app.state, "master_handle", None):
