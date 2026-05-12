@@ -127,6 +127,7 @@ async def list_tools() -> list[Tool]:
             ),
             inputSchema={
                 "type": "object",
+                "additionalProperties": False,
                 "required": ["project_id", "title"],
                 "properties": {
                     "project_id": {"type": "string"},
@@ -149,6 +150,7 @@ async def list_tools() -> list[Tool]:
             ),
             inputSchema={
                 "type": "object",
+                "additionalProperties": False,
                 "required": ["task_id"],
                 "properties": {
                     "task_id": {"type": "string"},
@@ -164,6 +166,7 @@ async def list_tools() -> list[Tool]:
             description="Move task to discarded state.",
             inputSchema={
                 "type": "object",
+                "additionalProperties": False,
                 "required": ["task_id"],
                 "properties": {"task_id": {"type": "string"}},
             },
@@ -229,7 +232,7 @@ async def _broadcast_task_updated(
         project_id=task.project_id,
         title=task.title,
         new_state=task.state,
-        previous_state=previous_state or task.state,
+        previous_state=previous_state,
     ))
 
 

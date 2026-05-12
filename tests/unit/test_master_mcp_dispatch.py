@@ -229,14 +229,16 @@ async def test_broadcast_task_updated_publishes_event() -> None:
     assert b.events[0].payload["previous_state"] == "idea"
 
 
-async def test_broadcast_task_updated_falls_back_to_new_state_when_no_prev() -> None:
-    # `discard_task` é chamado em qualquer estado; se task já estava em
-    # `discarded`, core.update_task retorna previous_state=None. Garantimos
-    # que broadcast NÃO envia None — manda new_state como fallback.
+async def test_broadcast_task_updated_preserves_none_prev_state() -> None:
+    # Quando core.update_task retorna previous_state=None (no-op transition,
+    # e.g. discard_task em task já `discarded`), o broadcast preserva None
+    # ao invés de mascarar com task.state. Envelope contract aceita None;
+    # passar new_state como fallback simularia uma falsa transição para
+    # subscribers do Kanban.
     b = _RecordingBroadcaster()
     task = _FakeRow(id="t1", project_id="p1", title="x", state="discarded")
     await _broadcast_task_updated(b, task, previous_state=None)
-    assert b.events[0].payload["previous_state"] == "discarded"
+    assert b.events[0].payload["previous_state"] is None
 
 
 async def test_create_task_tool_requires_catalog() -> None:
