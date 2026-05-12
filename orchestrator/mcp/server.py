@@ -1,0 +1,168 @@
+"""F8.c: MCP server com tools que manipulam o banco do J-arvis.
+
+Step 0 SDK spike findings (mcp==1.27.1):
+- `mcp.server.Server` (alias of `mcp.server.lowlevel.Server`).
+- Decorators confirmed: `@server.list_tools()` and `@server.call_tool()`.
+- `Server.request_context` (property) → `RequestContext` dataclass; backed by
+  contextvar `mcp.server.lowlevel.server.request_ctx`. Setting it directly is
+  not supported in stable API.
+- HTTP transport: `mcp.server.streamable_http_manager.StreamableHTTPSessionManager`
+  with `.handle_request(scope, receive, send)` (ASGI) and `.run()` (async ctx
+  manager that MUST be entered as part of the host app's lifespan).
+- The transport injects the raw Starlette `Request` into `RequestContext.request`
+  via `ServerMessageMetadata.request_context`, so tools COULD reach back to
+  `request.app.state` — but `request.app` is the inner Starlette sub-app, not
+  the parent FastAPI. To avoid that ladder we wire deps via a local contextvar
+  (`_DEPS_CTX`) populated by the ASGI auth middleware before delegating to the
+  session manager.
+"""
+from __future__ import annotations
+
+import contextvars
+import json
+from dataclasses import dataclass
+from typing import Any
+
+from mcp.server import Server
+from mcp.types import TextContent, Tool
+
+from orchestrator.core.catalog import Catalog
+from orchestrator.core.git import GitWorktreeOps
+from orchestrator.core.projects import get_project, list_projects
+from orchestrator.core.tasks import get_task, list_tasks
+from orchestrator.events.broadcaster import WsBroadcaster
+
+
+@dataclass
+class McpDeps:
+    """Request-scoped dependencies injected by the ASGI mount layer.
+
+    `db` is a `Database` (not an `AsyncSession`) because tools open per-call
+    sessions via `db.session()` — keeps each tool transactional and matches
+    the FastAPI DI pattern used by the rest of the API.
+    """
+
+    db: Any  # orchestrator.store.database.Database — Any to avoid circular import
+    catalog: Catalog | None
+    broadcaster: WsBroadcaster | None
+    git_ops: GitWorktreeOps | None
+
+
+_DEPS_CTX: contextvars.ContextVar[McpDeps] = contextvars.ContextVar("jarvis_mcp_deps")
+
+
+def set_deps(deps: McpDeps) -> contextvars.Token[McpDeps]:
+    """Set the request-scoped deps. Returns the token for `reset_deps`."""
+    return _DEPS_CTX.set(deps)
+
+
+def reset_deps(token: contextvars.Token[McpDeps]) -> None:
+    _DEPS_CTX.reset(token)
+
+
+def current_deps() -> McpDeps:
+    return _DEPS_CTX.get()
+
+
+mcp_server: Server = Server("j-arvis-master")
+
+
+@mcp_server.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="list_projects",
+            description="List all projects with their ids, names, and paths.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="get_project",
+            description="Get a project by id.",
+            inputSchema={
+                "type": "object",
+                "required": ["project_id"],
+                "properties": {"project_id": {"type": "string"}},
+            },
+        ),
+        Tool(
+            name="list_tasks",
+            description="List tasks, optionally filtered by project and/or state.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": "string"},
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "idea", "ready", "in_progress",
+                            "review", "done", "discarded",
+                        ],
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="get_task",
+            description="Get a task by id.",
+            inputSchema={
+                "type": "object",
+                "required": ["task_id"],
+                "properties": {"task_id": {"type": "string"}},
+            },
+        ),
+    ]
+
+
+@mcp_server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Dispatch JSON-RPC tool calls. Deps come from the request contextvar
+    populated by the ASGI mount middleware."""
+    deps = current_deps()
+    database = deps.db
+
+    if name == "list_projects":
+        async with database.session() as s:
+            rows = await list_projects(s)
+        payload = [_serialize_project(r) for r in rows]
+        return [TextContent(type="text", text=json.dumps(payload))]
+
+    if name == "get_project":
+        async with database.session() as s:
+            row = await get_project(s, arguments["project_id"])
+        return [TextContent(type="text", text=json.dumps(_serialize_project(row)))]
+
+    if name == "list_tasks":
+        project_ids = (
+            [arguments["project_id"]] if "project_id" in arguments else None
+        )
+        async with database.session() as s:
+            rows = await list_tasks(s, project_ids=project_ids)
+        state = arguments.get("state")
+        if state is not None:
+            rows = [r for r in rows if r.state == state]
+        payload = [_serialize_task(r) for r in rows]
+        return [TextContent(type="text", text=json.dumps(payload))]
+
+    if name == "get_task":
+        async with database.session() as s:
+            row = await get_task(s, arguments["task_id"])
+        return [TextContent(type="text", text=json.dumps(_serialize_task(row)))]
+
+    raise ValueError(f"unknown tool {name!r}")
+
+
+def _serialize_project(p: Any) -> dict[str, Any]:
+    return {"id": p.id, "name": p.name, "path": p.path}
+
+
+def _serialize_task(t: Any) -> dict[str, Any]:
+    return {
+        "id": t.id,
+        "project_id": t.project_id,
+        "title": t.title,
+        "description": t.description,
+        "state": t.state,
+        "branch": t.branch,
+        "template": t.template,
+        "permission_profile": t.permission_profile,
+    }

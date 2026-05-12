@@ -39,6 +39,13 @@ async def list_projects(session: AsyncSession) -> Sequence[Project]:
     return result.scalars().all()
 
 
+async def get_project(session: AsyncSession, project_id: str) -> Project:
+    proj = await session.get(Project, project_id)
+    if proj is None:
+        raise ProjectNotFoundError(f"project not found: {project_id}")
+    return proj
+
+
 async def delete_project(session: AsyncSession, project_id: str) -> None:
     project = await session.get(Project, project_id)
     if project is None:

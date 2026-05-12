@@ -1,10 +1,12 @@
 import os
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from orchestrator.api.bootstrap import router as bootstrap_router
 from orchestrator.api.catalog import router as catalog_router
@@ -25,6 +27,8 @@ from orchestrator.core.runs import cleanup_orphan_runs_at_startup
 from orchestrator.events.broadcaster import InMemoryWsBroadcaster
 from orchestrator.hooks.router import router as hooks_router
 from orchestrator.hooks.tokens import TokenRegistry
+from orchestrator.mcp.asgi_mount import build_mcp_app
+from orchestrator.mcp.server import McpDeps, mcp_server
 from orchestrator.notifications.notify_send import NoopNotifier, NotifySendNotifier
 from orchestrator.notifications.sink import NotifierSink
 from orchestrator.sandbox.aijail import (
@@ -43,6 +47,31 @@ def create_app(
     runtime: SessionRuntime | None = None,
     ui_dist: Path | None = None,
 ) -> FastAPI:
+    # F8.c: build sub-app first so we can chain its lifespan.
+    mcp_token = secrets.token_urlsafe(32)
+
+    async def _verify_mcp_auth(headers: dict[str, str]) -> str | None:
+        auth_header = headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return "missing bearer token"
+        if auth_header[7:] != app.state.master_mcp_token:
+            return "invalid MCP token"
+        return None
+
+    def _state_provider(_scope: Scope) -> McpDeps:
+        return McpDeps(
+            db=app.state.database,
+            catalog=app.state.catalog,
+            broadcaster=app.state.ws_broadcaster,
+            git_ops=app.state.git_ops,
+        )
+
+    mcp_asgi = build_mcp_app(
+        server=mcp_server,
+        state_provider=_state_provider,
+        auth=_verify_mcp_auth,
+    )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if database is not None:
@@ -56,9 +85,12 @@ def create_app(
                 await cleanup_orphan_runs_at_startup(
                     s, _app.state.docker_ops, _app.state.port_allocator,
                 )
-        yield
+        # F8.c: chain the MCP sub-app lifespan (StreamableHTTPSessionManager.run()).
+        async with mcp_asgi.router.lifespan_context(mcp_asgi):
+            yield
 
     app = FastAPI(title="J-arvis Orchestrator", version="0.0.1", lifespan=lifespan)
+    app.state.master_mcp_token = mcp_token
     app.state.database = database
     app.state.runtime = runtime
     app.state.token_registry = getattr(app.state, "token_registry", None)
@@ -101,6 +133,9 @@ def create_app(
                 if token is None:
                     raise HTTPException(status_code=404)
                 return {"token": token}
+
+    # F8.c: MCP server mounted before any catch-all UI static files.
+    app.mount("/api/mcp", mcp_asgi)
 
     if ui_dist is not None and ui_dist.is_dir():
         app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")
