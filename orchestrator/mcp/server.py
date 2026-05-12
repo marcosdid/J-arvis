@@ -67,7 +67,8 @@ def current_deps() -> McpDeps:
 mcp_server: Server = Server("j-arvis-master")
 
 
-@mcp_server.list_tools()
+# SDK ships untyped decorators (mcp 1.27.1); ignore mypy noise
+@mcp_server.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
 async def list_tools() -> list[Tool]:
     return [
         Tool(
@@ -113,7 +114,40 @@ async def list_tools() -> list[Tool]:
     ]
 
 
-@mcp_server.call_tool()
+async def _list_projects_tool(database: Any) -> str:
+    async with database.session() as s:
+        rows = await list_projects(s)
+    return json.dumps([_serialize_project(r) for r in rows])
+
+
+async def _get_project_tool(database: Any, project_id: str) -> str:
+    async with database.session() as s:
+        row = await get_project(s, project_id)
+    return json.dumps(_serialize_project(row))
+
+
+async def _list_tasks_tool(
+    database: Any,
+    project_id: str | None,
+    state: str | None,
+) -> str:
+    async with database.session() as s:
+        rows = await list_tasks(
+            s,
+            project_ids=[project_id] if project_id else None,
+            state=state,
+        )
+    return json.dumps([_serialize_task(r) for r in rows])
+
+
+async def _get_task_tool(database: Any, task_id: str) -> str:
+    async with database.session() as s:
+        row = await get_task(s, task_id)
+    return json.dumps(_serialize_task(row))
+
+
+# SDK ships untyped decorators (mcp 1.27.1); ignore mypy noise
+@mcp_server.call_tool()  # type: ignore[untyped-decorator]
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Dispatch JSON-RPC tool calls. Deps come from the request contextvar
     populated by the ASGI mount middleware."""
@@ -121,34 +155,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     database = deps.db
 
     if name == "list_projects":
-        async with database.session() as s:
-            rows = await list_projects(s)
-        payload = [_serialize_project(r) for r in rows]
-        return [TextContent(type="text", text=json.dumps(payload))]
-
-    if name == "get_project":
-        async with database.session() as s:
-            row = await get_project(s, arguments["project_id"])
-        return [TextContent(type="text", text=json.dumps(_serialize_project(row)))]
-
-    if name == "list_tasks":
-        project_ids = (
-            [arguments["project_id"]] if "project_id" in arguments else None
+        text = await _list_projects_tool(database)
+    elif name == "get_project":
+        text = await _get_project_tool(database, arguments["project_id"])
+    elif name == "list_tasks":
+        text = await _list_tasks_tool(
+            database,
+            arguments.get("project_id"),
+            arguments.get("state"),
         )
-        async with database.session() as s:
-            rows = await list_tasks(s, project_ids=project_ids)
-        state = arguments.get("state")
-        if state is not None:
-            rows = [r for r in rows if r.state == state]
-        payload = [_serialize_task(r) for r in rows]
-        return [TextContent(type="text", text=json.dumps(payload))]
+    elif name == "get_task":
+        text = await _get_task_tool(database, arguments["task_id"])
+    else:
+        raise ValueError(f"unknown tool {name!r}")
 
-    if name == "get_task":
-        async with database.session() as s:
-            row = await get_task(s, arguments["task_id"])
-        return [TextContent(type="text", text=json.dumps(_serialize_task(row)))]
-
-    raise ValueError(f"unknown tool {name!r}")
+    return [TextContent(type="text", text=text)]
 
 
 def _serialize_project(p: Any) -> dict[str, Any]:

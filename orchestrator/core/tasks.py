@@ -135,10 +135,13 @@ async def list_tasks(
     db: AsyncSession,
     *,
     project_ids: Sequence[str] | None = None,
+    state: str | None = None,
 ) -> Sequence[Task]:
     stmt = select(Task)
     if project_ids:
         stmt = stmt.where(Task.project_id.in_(project_ids))
+    if state is not None:
+        stmt = stmt.where(Task.state == state)
     result = await db.execute(stmt)
     return result.scalars().all()
 

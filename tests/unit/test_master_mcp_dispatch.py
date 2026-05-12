@@ -152,11 +152,9 @@ async def test_call_tool_list_tasks_no_filter_returns_all() -> None:
 
 
 async def test_call_tool_list_tasks_filters_by_state() -> None:
+    # SQL push-down: core.list_tasks applies WHERE state=?, so the fake session
+    # only returns rows matching the filter (mock at the SQL boundary).
     rows = [
-        _FakeRow(
-            id="t1", project_id="p1", title="a", description=None, state="idea",
-            branch=None, template=None, permission_profile=None,
-        ),
         _FakeRow(
             id="t2", project_id="p1", title="b", description=None, state="done",
             branch=None, template=None, permission_profile=None,

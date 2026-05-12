@@ -48,8 +48,6 @@ def create_app(
     ui_dist: Path | None = None,
 ) -> FastAPI:
     # F8.c: build sub-app first so we can chain its lifespan.
-    mcp_token = secrets.token_urlsafe(32)
-
     async def _verify_mcp_auth(headers: dict[str, str]) -> str | None:
         auth_header = headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
@@ -90,7 +88,9 @@ def create_app(
             yield
 
     app = FastAPI(title="J-arvis Orchestrator", version="0.0.1", lifespan=lifespan)
-    app.state.master_mcp_token = mcp_token
+    app.state.master_mcp_token = getattr(
+        app.state, "master_mcp_token", None,
+    ) or secrets.token_urlsafe(32)
     app.state.database = database
     app.state.runtime = runtime
     app.state.token_registry = getattr(app.state, "token_registry", None)
