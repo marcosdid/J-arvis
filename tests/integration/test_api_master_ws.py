@@ -137,6 +137,52 @@ def test_ws_master_bridges_pty_output_and_input(
 
 
 @pytest.mark.integration
+def test_ws_pty_to_browser_exits_on_multiplexer_shutdown(
+    db: Database, runtime: FakeSessionRuntime,
+) -> None:
+    """Quando multiplexer.shutdown() é chamado (ex: watchdog re-spawn), WS
+    connections existentes recebem sentinel EOF via queue e o lado
+    pty_to_browser termina sem ficar pendurado em queue.get() pra sempre.
+
+    Verificado via: shutdown limpa subscribers, e o handler async sai do
+    loop (não fica eternamente bloqueado em queue.get).
+    """
+    stub_ops = _StubPtyOps()
+    with patch(
+        "orchestrator.main.SubprocessPtyOps",
+        return_value=stub_ops,
+    ), patch(
+        "orchestrator.sandbox.pty_runtime.MasterSessionRuntime.spawn",
+        new=_fake_spawn_factory(stub_ops),
+    ), patch(
+        "orchestrator.main.Path.mkdir",
+    ):
+        app = create_app(database=db, runtime=runtime, ui_dist=None)
+        with TestClient(app) as client:
+            mux = app.state.master_multiplexer
+            assert mux is not None
+            with client.websocket_connect("/ws/master") as ws:
+                # Espera subscribe acontecer no handler async
+                for _ in range(40):
+                    if len(mux._subscribers) == 1:  # type: ignore[attr-defined]
+                        break
+                    time.sleep(0.05)
+                assert len(mux._subscribers) == 1  # type: ignore[attr-defined]
+
+                # Dispara shutdown do mux no event loop do app via portal do WS
+                ws.portal.call(mux.shutdown)
+
+                # Shutdown drenou subscribers via sentinel + clear()
+                assert len(mux._subscribers) == 0  # type: ignore[attr-defined]
+
+                # pty_to_browser detectou b"" e retornou; asyncio.wait disparou
+                # cancel em browser_to_pty; handler async caminha pro finally
+                # e o WS é fechado pelo Starlette. Recebe disconnect limpo.
+                with pytest.raises(WebSocketDisconnect):
+                    ws.receive_json()
+
+
+@pytest.mark.integration
 def test_ws_master_unsubscribe_on_disconnect(
     db: Database, runtime: FakeSessionRuntime,
 ) -> None:

@@ -43,9 +43,21 @@ class PtyMultiplexer:
         self._subscribers.discard(q)
 
     async def shutdown(self) -> None:
+        """Cancela reader + drena subscribers com sentinel EOF (b'').
+
+        Subscribers que estavam aguardando ``queue.get()`` recebem ``b''`` (EOF)
+        e podem sair do loop graciosamente — sem isso, re-spawn pelo watchdog
+        deixaria WS connections existentes penduradas pra sempre no multiplexer
+        morto.
+        """
         self._reader_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await self._reader_task
+        for q in list(self._subscribers):
+            # Queue cheia → subscriber já vai detectar disconnect na próxima get
+            with contextlib.suppress(asyncio.QueueFull):
+                q.put_nowait(b"")
+        self._subscribers.clear()
 
 
 router = APIRouter()
@@ -82,6 +94,9 @@ async def master_ws(websocket: WebSocket) -> None:
     async def pty_to_browser() -> None:
         while True:
             chunk = await queue.get()
+            if not chunk:
+                # Multiplexer shutdown OR PTY EOF — terminate this side
+                return
             await websocket.send_json({
                 "type": "output",
                 "data": chunk.decode("utf-8", errors="replace"),
@@ -105,3 +120,7 @@ async def master_ws(websocket: WebSocket) -> None:
                 t.result()
     finally:
         mux.unsubscribe(queue)
+        # Garantia: se saímos por EOF do mux (shutdown/PTY died), feche o WS
+        # explicitamente — Starlette não fecha sozinho quando o handler retorna.
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=1011, reason="master_pty_unavailable")

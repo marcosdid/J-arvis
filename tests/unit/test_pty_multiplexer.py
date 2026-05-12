@@ -59,3 +59,22 @@ async def test_multiplexer_shutdown_cancels_reader() -> None:
     mux = PtyMultiplexer(ops, master_fd=7)
     await mux.shutdown()
     assert mux._reader_task.done()  # type: ignore[attr-defined]
+
+
+async def test_multiplexer_shutdown_sends_eof_sentinel_to_subscribers() -> None:
+    """Shutdown drena subscribers com b'' pra sinalizar EOF.
+
+    Sem o sentinel, WS connections existentes ficariam penduradas em
+    queue.get() do multiplexer morto quando o watchdog re-spawn o master.
+    """
+    ops = _StubPtyOps([b"data"])  # PTY ainda alive (read() bloqueia depois)
+    mux = PtyMultiplexer(ops, master_fd=7)
+    q = await mux.subscribe()
+    chunk = await asyncio.wait_for(q.get(), timeout=1.0)
+    assert chunk == b"data"
+
+    await mux.shutdown()
+
+    sentinel = await asyncio.wait_for(q.get(), timeout=1.0)
+    assert sentinel == b""
+    assert q not in mux._subscribers  # type: ignore[attr-defined]
