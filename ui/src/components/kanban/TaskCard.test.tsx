@@ -6,8 +6,8 @@ import { DndContext } from '@dnd-kit/core';
 
 // In_progress/review states embed <RunStatus /> which queries the run.
 // TaskCard also calls useCatalog for badge tooltips. Stub both endpoints.
-vi.mock('../lib/api', async () => {
-  const actual = await vi.importActual('../lib/api');
+vi.mock('../../lib/api', async () => {
+  const actual = await vi.importActual('../../lib/api');
   return {
     ...actual,
     api: {
@@ -17,7 +17,7 @@ vi.mock('../lib/api', async () => {
   };
 });
 
-import { api, type Task, type Project, type Catalog } from '../lib/api';
+import { api, type Task, type Project, type Catalog } from '../../lib/api';
 
 const emptyCatalog: Catalog = {
   version: '1',
@@ -149,5 +149,30 @@ describe('TaskCard', () => {
       'title',
       'Perfil: paranoid',
     );
+  });
+
+  describe('data-card-state', () => {
+    it('sets data-card-state=idle for a default idea task', () => {
+      const { container } = wrap(<TaskCard task={baseTask} projects={projects} />);
+      expect(container.firstChild).toHaveAttribute('data-card-state', 'idle');
+    });
+
+    it('sets data-card-state=running when task state is in_progress', () => {
+      const t: Task = { ...baseTask, state: 'in_progress' };
+      const { container } = wrap(<TaskCard task={t} projects={projects} />);
+      expect(container.firstChild).toHaveAttribute('data-card-state', 'running');
+    });
+
+    it('sets data-card-state=done when task state is done', () => {
+      const t: Task = { ...baseTask, state: 'done' };
+      const { container } = wrap(<TaskCard task={t} projects={projects} />);
+      expect(container.firstChild).toHaveAttribute('data-card-state', 'done');
+    });
+
+    it('sets data-card-state=error when task state is error', () => {
+      const t: Task = { ...baseTask, state: 'error' };
+      const { container } = wrap(<TaskCard task={t} projects={projects} />);
+      expect(container.firstChild).toHaveAttribute('data-card-state', 'error');
+    });
   });
 });

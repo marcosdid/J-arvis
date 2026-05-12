@@ -1,7 +1,7 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Task, Project } from '../../lib/api';
-import { TaskCard } from '../TaskCard';
+import { TaskCard } from './TaskCard';
 
 type Props = {
   name: string;
