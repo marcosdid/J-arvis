@@ -20,5 +20,6 @@ export function useSystemHealth() {
     queryFn: fetchHealth,
     refetchInterval: 5_000,
     staleTime: 4_000,
+    retry: false,
   });
 }
