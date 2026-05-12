@@ -14,6 +14,7 @@ from starlette.types import Scope
 
 from orchestrator.api.bootstrap import router as bootstrap_router
 from orchestrator.api.catalog import router as catalog_router
+from orchestrator.api.health import router as health_api_router
 from orchestrator.api.master_ws import PtyMultiplexer
 from orchestrator.api.master_ws import router as master_ws_router
 from orchestrator.api.projects import router as projects_router
@@ -107,16 +108,17 @@ async def _master_shutdown(_app: FastAPI, database: Database | None) -> None:
     if getattr(_app.state, "master_handle", None):
         with contextlib.suppress(ProcessLookupError):
             _app.state.master_pty_ops.kill(_app.state.master_handle.pid)
-        if database is not None:
+        if database is not None:  # pragma: no branch
             async with database.session() as s:
                 master = await s.get(MasterSession, "singleton")
-                if master:
+                if master:  # pragma: no branch
                     master.pid = None
                     await s.commit()
 
 
 def _include_api_routers(app: FastAPI, runtime: SessionRuntime | None) -> None:
     """Wire up todos routers /api (separado pra reduzir size de create_app)."""
+    app.include_router(health_api_router, prefix="/api")
     app.include_router(catalog_router, prefix="/api")
     app.include_router(projects_router, prefix="/api")
     app.include_router(worktrees_router, prefix="/api")

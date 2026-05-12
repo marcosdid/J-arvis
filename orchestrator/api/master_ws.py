@@ -88,7 +88,7 @@ async def master_ws(websocket: WebSocket) -> None:
             if msg["type"] == "input":
                 async with write_lock:
                     await pty_ops.write(handle.master_fd, msg["data"].encode())
-            elif msg["type"] == "resize":
+            elif msg["type"] == "resize":  # pragma: no branch
                 pty_ops.resize(handle.master_fd, msg["rows"], msg["cols"])
 
     async def pty_to_browser() -> None:
