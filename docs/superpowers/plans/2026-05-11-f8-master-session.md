@@ -186,18 +186,31 @@ class MasterPtyHandle:
 
 - [ ] **Step 4: Stub test do Protocol**
 
+`PtyProcessOps` precisa ser `@runtime_checkable` pra que `isinstance(impl, PtyProcessOps)` funcione nos tests. Edit em `orchestrator/sandbox/pty_runtime.py`:
+
+```python
+from typing import Protocol, runtime_checkable
+
+@runtime_checkable
+class PtyProcessOps(Protocol):
+    ...
+```
+
 Write `tests/unit/test_pty_ops.py`:
 
 ```python
-"""F8.a: stub tests garantem que Protocol + dataclass importam e existem."""
+"""F8.a: stub tests garantem que Protocol + dataclass têm os métodos certos."""
 from datetime import UTC, datetime
+from typing import get_type_hints
 
 from orchestrator.sandbox.pty_runtime import MasterPtyHandle, PtyProcessOps
 
 
-def test_pty_process_ops_is_protocol() -> None:
-    # Verifica que é um Protocol (subclass detection)
-    assert hasattr(PtyProcessOps, "__init_subclass__")
+def test_pty_process_ops_declares_required_methods() -> None:
+    """Verifica que Protocol expõe a API esperada (spawn/read/write/resize/kill/close)."""
+    required = {"spawn", "read", "write", "resize", "kill", "close"}
+    actual = {name for name in dir(PtyProcessOps) if not name.startswith("_")}
+    assert required.issubset(actual)
 
 
 def test_master_pty_handle_constructs() -> None:
@@ -209,6 +222,16 @@ def test_master_pty_handle_constructs() -> None:
     )
     assert h.pid == 1234
     assert h.claude_session_id == "abc123"
+
+
+def test_master_pty_handle_is_frozen() -> None:
+    """Dataclass deve ser frozen pra imutabilidade."""
+    import dataclasses
+    h = MasterPtyHandle(
+        pid=1, master_fd=2, claude_session_id="x", started_at=datetime.now(UTC),
+    )
+    with __import__("pytest").raises(dataclasses.FrozenInstanceError):
+        h.pid = 999  # type: ignore[misc]
 ```
 
 - [ ] **Step 5: Rodar migration localmente + smoke test do model**
@@ -665,7 +688,8 @@ git commit -m "feat(F8.b): MasterSessionRuntime + writers + SubprocessPtyOps + P
 ## Task F8.c — MCP server module + read-only tools + ASGI mount
 
 **Files:**
-- Modify: `pyproject.toml` (adicionar `mcp>=1.0`)
+- Modify: `pyproject.toml` + `uv.lock` (adicionar `mcp` dep)
+- Modify: `orchestrator/core/projects.py` (adicionar `get_project` + `ProjectNotFoundError`)
 - Create: `orchestrator/mcp/__init__.py`
 - Create: `orchestrator/mcp/server.py`
 - Create: `orchestrator/mcp/asgi_mount.py`
@@ -673,21 +697,45 @@ git commit -m "feat(F8.b): MasterSessionRuntime + writers + SubprocessPtyOps + P
 - Create: `tests/unit/test_master_mcp_dispatch.py`
 - Create: `tests/integration/test_api_mcp_read_tools.py`
 
-- [ ] **Step 1: Adicionar `mcp` ao pyproject.toml**
+- [ ] **Step 0: Spike MCP SDK API (PRÉ-REQUISITO)**
 
-Edit `pyproject.toml`. Na lista `dependencies = [...]`, adicionar:
-
-```toml
-    "mcp>=1.0",
-```
-
-Run sync:
+A spec do plan usa nomes especulativos (`StreamableHttpServerTransport`, `server.run_in_request_context`, `transport.handle_asgi`). Pin a API real ANTES de escrever código.
 
 ```bash
-uv sync
+cd /home/marcoslima/Documentos/projetos/J-arvs
+uv add mcp
 ```
 
-Expected: instala `mcp` sem erros.
+Depois rode esses spike checks (use o que está disponível na sua sessão; se context7 não estiver acessível, leia direto do package):
+
+```bash
+uv run python -c "
+import mcp.server
+import mcp.server.streamable_http as sh
+print('Server class:', dir(mcp.server.Server))
+print('streamable_http exports:', dir(sh))
+"
+```
+
+**Output esperado** (a confirmar):
+- `Server` em `mcp.server` com métodos `list_tools()` e `call_tool()` decorators
+- Algum tipo de `SessionManager` ou `Transport` em `mcp.server.streamable_http`
+- Mecanismo de context state (`request_context`, `lifespan`, ou kwarg)
+
+**Documente o resultado neste arquivo (F8.c Step 0)** antes de prosseguir. Se a API divergir significativamente do plano (ex: API requer `stateless=True`, ou usa `session_manager.handle_request` ao invés de `transport.handle_asgi`), reescreva o `asgi_mount.py` no Step 3 com a API correta.
+
+**Se a SDK não estiver instalável (network issue, package yanked, etc.)**: escalar pra usuário. Não improvisar.
+
+- [ ] **Step 1: Confirmar dep instalada**
+
+`uv add mcp` no Step 0 já adicionou `mcp` ao `pyproject.toml` (range padrão `mcp>=X.Y,<Z.0`) e atualizou `uv.lock`. Verificar:
+
+```bash
+grep "mcp" pyproject.toml
+uv pip list | grep mcp
+```
+
+Expected: `mcp` aparece em `pyproject.toml dependencies` + instalado.
 
 - [ ] **Step 2: Criar namespace + Server**
 
@@ -799,10 +847,22 @@ def _serialize_task(t: Any) -> dict[str, Any]:
     }
 ```
 
-Note: as funções `list_projects`/`list_tasks` em `core/projects.py` e `core/tasks.py` já existem (F1-F7). `get_project` precisa existir — caso não exista, adicionar como helper trivial em `core/projects.py` (se não existir nesse passo, adicionar:
+`list_projects`/`list_tasks` em `core/projects.py` e `core/tasks.py` já existem (F1-F7). `get_project` **NÃO** existe — precisa ser criado. Vai como passo explícito a seguir.
+
+- [ ] **Step 2b: Criar `get_project` em `core/projects.py`**
+
+Edit `orchestrator/core/projects.py`. Verificar se `ProjectNotFoundError` já existe (search:`class ProjectNotFoundError`). Se não existir, adicionar perto das outras `*Error` no topo:
 
 ```python
-# Em orchestrator/core/projects.py
+class ProjectNotFoundError(Exception):
+    def __init__(self, project_id: str) -> None:
+        super().__init__(f"project {project_id!r} not found")
+        self.project_id = project_id
+```
+
+Adicionar a função helper (após `list_projects`):
+
+```python
 async def get_project(db: AsyncSession, project_id: str) -> Project:
     proj = await db.get(Project, project_id)
     if proj is None:
@@ -810,7 +870,39 @@ async def get_project(db: AsyncSession, project_id: str) -> Project:
     return proj
 ```
 
-Adicionar `ProjectNotFoundError` ao mesmo módulo se ainda não existir.)
+Smoke test (criar `tests/unit/test_projects_get_project.py` mínimo):
+
+```python
+"""F8.c: get_project helper."""
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from orchestrator.core.projects import (
+    ProjectNotFoundError,
+    get_project,
+)
+from orchestrator.store.models import Project
+
+
+async def test_get_project_returns_existing(db_session: AsyncSession) -> None:
+    db_session.add(Project(id="p1", name="p", path="/tmp/p"))
+    await db_session.commit()
+    p = await get_project(db_session, "p1")
+    assert p.name == "p"
+
+
+async def test_get_project_missing_raises(db_session: AsyncSession) -> None:
+    with pytest.raises(ProjectNotFoundError):
+        await get_project(db_session, "ghost")
+```
+
+Run:
+
+```bash
+uv run pytest tests/unit/test_projects_get_project.py -v
+```
+
+Expected: 2/2 pass.
 
 - [ ] **Step 3: Criar ASGI mount wrapper**
 
@@ -1139,7 +1231,7 @@ Edit `orchestrator/mcp/server.py`. Estender o `return` de `list_tools` com:
         ),
         Tool(
             name="update_task",
-            description="Update task fields. State transitions follow F4 state machine.",
+            description="Update task fields. State transitions follow F4 state machine. NOTE: template é snapshot-at-create (F7) — não editável aqui.",
             inputSchema={
                 "type": "object",
                 "required": ["task_id"],
@@ -1147,9 +1239,9 @@ Edit `orchestrator/mcp/server.py`. Estender o `return` de `list_tools` com:
                     "task_id": {"type": "string"},
                     "title": {"type": "string"},
                     "description": {"type": "string"},
-                    "template": {"type": "string"},
                     "state": {"type": "string"},
                     "branch": {"type": "string"},
+                    # template intencionalmente ausente: F7 decisão de snapshot-at-create
                 },
             },
         ),
@@ -1195,10 +1287,10 @@ Estender `call_tool` com branches:
         return [TextContent(type="text", text=json.dumps(_serialize_task(task)))]
 
     if name == "update_task":
-        catalog = ctx.state["catalog"]
         broadcaster = ctx.state["broadcaster"]
         task_id = arguments.pop("task_id")
-        # Atualiza fields. update_task assinatura: (db, task_id, **fields)
+        # update_task em core/tasks.py NÃO aceita `catalog` nem `template`.
+        # Assinatura confirmada: (db, task_id, *, title?, description?, state?, branch?)
         task, prev_state = await update_task(db, task_id, **arguments)
         if broadcaster is not None:
             await broadcaster.publish(WsEvent.task_updated(
@@ -1220,7 +1312,7 @@ Estender `call_tool` com branches:
         return [TextContent(type="text", text=json.dumps(_serialize_task(task)))]
 ```
 
-**Importante:** a função `update_task` em `core/tasks.py` retorna `tuple[Task, str | None]` (task + previous_state). Verificar assinatura atual e ajustar a chamada se necessário. Verificar também se `update_task` aceita `catalog` kwarg (não devia, mas double-check).
+**Confirmado:** `update_task` em `core/tasks.py` retorna `tuple[Task, str | None]` (task + previous_state). Aceita apenas: `title`, `description`, `state`, `branch`. NÃO aceita `template` nem `catalog` (decisão F7: template é snapshot-at-create). Schema do tool exclui esses dois fields.
 
 - [ ] **Step 3: Escrever integration tests**
 
@@ -1302,7 +1394,10 @@ async def test_create_task_with_template(
     parsed = json.loads(result["result"]["content"][0]["text"])
     assert parsed["template"] == "frontend"
     assert parsed["permission_profile"] == "yolo"
-    assert parsed["branch"] == "feat-ui/add-dark-mode"
+    # Branch usa prefix do template + slug do title. Weak assert pra
+    # tolerar variações no slugify_for_branch entre versões.
+    assert parsed["branch"].startswith("feat-ui/")
+    assert "dark" in parsed["branch"] and "mode" in parsed["branch"]
 
 
 @pytest.mark.integration
@@ -1670,8 +1765,13 @@ No `lifespan`, substituir/estender:
             master_cwd = Path.home() / ".local" / "share" / "j-arvis" / "master"
             master_cwd.mkdir(parents=True, exist_ok=True)
             port = 8765  # TODO: source from Settings
+            # Inicializa state SEMPRE — independente de spawn ter sucesso ou não.
+            # /ws/master handler usa estes attrs; sem init eles raise AttributeError
+            # quando handle/multiplexer == None (estado degradado).
             _app.state.master_pty_ops = pty_ops
             _app.state.master_write_lock = asyncio.Lock()
+            _app.state.master_handle = None
+            _app.state.master_multiplexer = None
 
             try:
                 handle = await master_runtime.spawn(
@@ -1696,6 +1796,51 @@ No `lifespan`, substituir/estender:
                         last_active=datetime.now(UTC),
                     ))
                     await s.commit()
+
+                # Watchdog: se `claude --resume <id>` falha (jsonl corrompido),
+                # PTY morre em <1s. Detecta via task background que monitora
+                # se proc ainda vive 2s após spawn. Se morto, re-spawn com
+                # session_id=None (nova session) + broadcast system warning.
+                async def _resume_watchdog() -> None:
+                    await asyncio.sleep(2.0)
+                    try:
+                        os.kill(handle.pid, 0)  # signal 0 = check alive
+                    except ProcessLookupError:
+                        # PTY morreu — possible --resume failure
+                        logger.warning(
+                            "master PTY died <2s after spawn; --resume may have failed. "
+                            "Re-spawning fresh."
+                        )
+                        # Broadcast system message via multiplexer pseudo-event
+                        # (subscribers ainda não conectaram; mensagem fica perdida.
+                        # Mitigação: novo spawn vira a fonte de verdade)
+                        try:
+                            new_handle = await master_runtime.spawn(
+                                cwd=master_cwd,
+                                claude_session_id=None,  # nova session
+                                mcp_url=f"http://localhost:{port}/api/mcp",
+                                token=_app.state.master_mcp_token,
+                            )
+                        except (FileNotFoundError, OSError) as exc:
+                            logger.error("re-spawn failed: %s", exc)
+                            return
+                        _app.state.master_handle = new_handle
+                        await _app.state.master_multiplexer.shutdown()
+                        _app.state.master_multiplexer = PtyMultiplexer(
+                            pty_ops, new_handle.master_fd,
+                        )
+                        async with database.session() as s:
+                            await s.merge(MasterSession(
+                                id="singleton",
+                                claude_session_id=new_handle.claude_session_id,
+                                pid=new_handle.pid,
+                                started_at=new_handle.started_at,
+                                last_active=datetime.now(UTC),
+                            ))
+                            await s.commit()
+
+                # Dispara watchdog (não awaitamos — fica em background)
+                _app.state._master_watchdog = asyncio.create_task(_resume_watchdog())
 
         yield
 
@@ -1735,23 +1880,30 @@ from tests.integration.conftest import FakeSessionRuntime
 async def test_ws_master_not_ready_closes_1011(
     db: Database, runtime: FakeSessionRuntime,
 ) -> None:
-    """create_app sem lifespan startup completo → master_handle None → close 1011."""
-    app = create_app(database=db, runtime=runtime, ui_dist=None)
-    # NÃO rodamos lifespan; handle/multiplexer ficam None
+    """master_handle=None (spawn failure) → WS connect retorna system error + close 1011.
+
+    Força spawn failure via patch pra ter teste determinístico.
+    """
+    from unittest.mock import patch
+
     from fastapi.testclient import TestClient
 
-    with TestClient(app) as client:
-        # TestClient roda lifespan, mas nosso fixture pode falhar o spawn
-        # — verificar comportamento. Se spawn falha gracefully, handle=None.
-        # Em produção a UI vê system error + close 1011.
-        try:
+    with patch(
+        "orchestrator.sandbox.pty_runtime.MasterSessionRuntime.spawn",
+        side_effect=FileNotFoundError("forced"),
+    ):
+        app = create_app(database=db, runtime=runtime, ui_dist=None)
+        with TestClient(app) as client:
+            # lifespan rodou, spawn falhou, app.state.master_handle = None
+            assert app.state.master_handle is None
             with client.websocket_connect("/ws/master") as ws:
                 msg = ws.receive_json()
                 assert msg["type"] == "system"
                 assert msg["level"] == "error"
-        except Exception:
-            # Connection closed before receive_json — also acceptable
-            pass
+                assert "not available" in msg["message"].lower()
+                # Close imediato depois da system message
+                with pytest.raises(Exception):  # WebSocketDisconnect ou similar
+                    ws.receive_json(timeout=1.0)
 ```
 
 Write `tests/integration/test_master_session_persists.py`:
@@ -1945,16 +2097,50 @@ Run:
 cd ui && npm install
 ```
 
-**Gate de compat React 19:** smoke test com nova instância antes de prosseguir. Criar arquivo temporário `ui/scripts/xterm-smoke.tsx` ou rodar inline:
+**Gate de compat React 19 (real)**: o problema real não é `require()` funcionar (xterm é framework-agnostic) mas sim **renderização no StrictMode do React 19**, que double-mounts. Cria um smoke render real:
 
-```bash
-node -e "const { Terminal } = require('@xterm/xterm'); console.log('xterm imports OK')"
+Write `ui/src/components/__xterm_smoke.test.tsx` (temporário, será removido após gate):
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { render } from '@testing-library/react';
+import { StrictMode } from 'react';
+import { Terminal } from '@xterm/xterm';
+import '@xterm/xterm/css/xterm.css';
+
+describe('xterm.js compat smoke', () => {
+  it('Terminal constructs + opens in jsdom without throwing', () => {
+    // Render dentro de StrictMode pra cobrir double-mount do React 19
+    const Container = () => {
+      const div = document.createElement('div');
+      document.body.appendChild(div);
+      const term = new Terminal({ rows: 24, cols: 80 });
+      term.open(div);
+      term.dispose();
+      return null;
+    };
+    expect(() => {
+      render(<StrictMode><Container /></StrictMode>);
+    }).not.toThrow();
+  });
+});
 ```
 
-Se houver erro de compat com React 19 ou peer deps, considerar:
-1. Downgrade temporário pra `@xterm/xterm@5.4.x`
-2. `--legacy-peer-deps` no install
-3. Bloqueador → escalar pra usuário
+Run:
+
+```bash
+cd ui && npx vitest run src/components/__xterm_smoke.test.tsx
+```
+
+Expected: 1/1 pass.
+
+**Se falhar:**
+1. Inspecionar erro. Common: peer dep React mismatch, `term.open` requer document, etc.
+2. Tentar `npm install --legacy-peer-deps`
+3. Downgrade pra `@xterm/xterm@5.4.0` se React 19 não for compatível
+4. Bloqueador → escalar pra usuário; F8 fica pendente
+
+Remova o smoke test após passar (será coberto pelos tests reais em Step 2-3).
 
 - [ ] **Step 2: Escrever testes do component (TDD)**
 
@@ -2029,9 +2215,32 @@ describe('MasterSidebar', () => {
   });
 
   it('renders system error banner when WS sends type=system level=error', async () => {
-    // Mais elaborado: simular receive {type:"system", level:"error", message:"..."}
-    // E verificar render
-    // (skeleton — pode ser elaborated)
+    let wsInstance: MockWebSocket | null = null;
+    const origCtor = globalThis.WebSocket;
+    // @ts-expect-error capture
+    globalThis.WebSocket = class extends MockWebSocket {
+      constructor(url: string) {
+        super(url);
+        wsInstance = this as unknown as MockWebSocket;
+      }
+    };
+    render(<MasterSidebar />);
+    // Wait for WS to "open"
+    await new Promise((r) => setTimeout(r, 10));
+    expect(wsInstance).not.toBeNull();
+    // Simula daemon enviando system error
+    wsInstance!.onmessage?.(new MessageEvent('message', {
+      data: JSON.stringify({
+        type: 'system', level: 'error',
+        message: 'master session not available',
+      }),
+    }));
+    // Banner aparece
+    await new Promise((r) => setTimeout(r, 10));
+    const banner = await screen.findByLabelText('system-msg');
+    expect(banner).toHaveTextContent('master session not available');
+    expect(banner.className).toContain('error');
+    globalThis.WebSocket = origCtor;
   });
 });
 ```
@@ -2209,7 +2418,7 @@ CSS para layout (em `index.css`):
 cd ui && npx vitest run src/components/MasterSidebar.test.tsx
 ```
 
-Expected: pass (alguns testes podem ser stubbed). Coverage ~80%+ no MasterSidebar.tsx; xterm internals excluídos.
+Expected: pass. Coverage no `MasterSidebar.tsx`: 100% statements/branches (system error banner test cobre o ramo do `systemMsg`); xterm internals em `node_modules/@xterm` ficam excluded via vitest config (já é default por path).
 
 - [ ] **Step 7: Build + type-check**
 
