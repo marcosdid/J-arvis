@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { Kanban } from './Kanban';
 
-vi.mock('../lib/api', async () => {
-  const actual = await vi.importActual('../lib/api');
+vi.mock('../../lib/api', async () => {
+  const actual = await vi.importActual('../../lib/api');
   return {
     ...actual,
     api: {
@@ -15,7 +15,7 @@ vi.mock('../lib/api', async () => {
   };
 });
 
-import { api } from '../lib/api';
+import { api } from '../../lib/api';
 
 beforeEach(() => {
   vi.clearAllMocks();

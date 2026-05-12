@@ -9,12 +9,12 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
-import { api, type Task, type Project } from '../lib/api';
-import { isValidTransition, resolveColumnState } from '../lib/transitions';
-import { translateError } from '../lib/errorMessages';
-import { queryKeys } from '../lib/query-keys';
-import { useTasks } from '../hooks/useTasks';
-import { usePatchTask } from '../hooks/useTaskMutations';
+import { api, type Task, type Project } from '../../lib/api';
+import { isValidTransition, resolveColumnState } from '../../lib/transitions';
+import { translateError } from '../../lib/errorMessages';
+import { queryKeys } from '../../lib/query-keys';
+import { useTasks } from '../../hooks/useTasks';
+import { usePatchTask } from '../../hooks/useTaskMutations';
 import { KanbanColumn } from './KanbanColumn';
 
 const COLUMNS = ['Backlog', 'In Progress', 'Review', 'Done', 'Discarded'] as const;
@@ -124,12 +124,16 @@ export function Kanban({ filters, onCardClick }: Props) {
   return (
     <>
       {error && (
-        <div role="alert" className="toast" onClick={() => setError(null)}>
+        <div
+          role="alert"
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-sem-error/10 border border-sem-error text-sem-error text-xs px-4 py-2 rounded-sm cursor-pointer"
+          onClick={() => setError(null)}
+        >
           {error}
         </div>
       )}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <div className="kanban">
+        <div className="flex gap-3 p-3 h-full overflow-x-auto">
           {COLUMNS.map((col) => (
             <KanbanColumn
               key={col}

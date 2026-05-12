@@ -7,7 +7,7 @@ import { queryKeys } from './lib/query-keys';
 import { useSessionEvents } from './hooks/useSessionEvents';
 
 import { AppShell } from './app/AppShell';
-import { Kanban } from './components/Kanban';
+import { Kanban } from './components/kanban/Kanban';
 import { MasterSidebar } from './components/MasterSidebar';
 import { NewTaskForm } from './components/NewTaskForm';
 import { ProjectFilters } from './components/ProjectFilters';
