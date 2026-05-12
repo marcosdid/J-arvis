@@ -9,7 +9,7 @@ import { useSessionEvents } from './hooks/useSessionEvents';
 import { AppShell } from './app/AppShell';
 import { Kanban } from './components/kanban/Kanban';
 import { MasterSidebar } from './components/master/MasterSidebar';
-import { NewTaskForm } from './components/NewTaskForm';
+import { NewTaskSheet } from './components/drawers/NewTaskSheet';
 import { ProjectFilters } from './components/ProjectFilters';
 import { ProjectsDrawer } from './components/ProjectsDrawer';
 import { TaskDetailSheet } from './components/task-detail/TaskDetailSheet';
@@ -45,6 +45,7 @@ export function App() {
   }, [knownIds, projects.data]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const projectsCount = projects.data?.length ?? 0;
@@ -59,7 +60,7 @@ export function App() {
         activeCount={activeCount}
         wsRtt={null}
         onToggleProjects={() => setDrawerOpen(true)}
-        onNewTask={() => { /* placeholder — Phase 11 wires NewTaskSheet */ }}
+        onNewTask={() => setNewTaskOpen(true)}
         onFilter={() => { /* placeholder — Phase 13 wires filter */ }}
       >
         <ProjectFilters
@@ -68,8 +69,12 @@ export function App() {
           onChange={setFilters}
         />
         <Kanban filters={filters} onCardClick={setSelectedTaskId} />
-        <NewTaskForm projects={projects.data ?? []} />
 
+        <NewTaskSheet
+          open={newTaskOpen}
+          onClose={() => setNewTaskOpen(false)}
+          projects={projects.data ?? []}
+        />
         <ProjectsDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
         <TaskDetailSheet
           taskId={selectedTaskId}

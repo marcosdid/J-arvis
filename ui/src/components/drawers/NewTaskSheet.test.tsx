@@ -2,12 +2,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { NewTaskForm } from './NewTaskForm';
+import { NewTaskSheet } from './NewTaskSheet';
 
 const projects = [{ id: 'p1', name: 'projA', path: '/p', created_at: '', repositories: [] }];
 
-vi.mock('../lib/api', async () => {
-  const actual = await vi.importActual('../lib/api');
+vi.mock('../../lib/api', async () => {
+  const actual = await vi.importActual('../../lib/api');
   return {
     ...actual,
     api: {
@@ -17,7 +17,7 @@ vi.mock('../lib/api', async () => {
   };
 });
 
-import { api, type Catalog } from '../lib/api';
+import { api, type Catalog } from '../../lib/api';
 
 const fakeCatalog: Catalog = {
   version: '1',
@@ -52,14 +52,45 @@ function wrap(ui: React.ReactElement) {
   return render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>);
 }
 
-describe('NewTaskForm', () => {
+describe('NewTaskSheet', () => {
+  // --- Open/close behaviour ---
+
+  it('renders nothing when open=false', () => {
+    wrap(<NewTaskSheet open={false} onClose={vi.fn()} projects={projects} />);
+    expect(screen.queryByRole('form', { name: /new-task/i })).not.toBeInTheDocument();
+  });
+
+  it('renders form when open=true', () => {
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
+    expect(screen.getByRole('form', { name: /new-task/i })).toBeInTheDocument();
+  });
+
+  it('calls onClose when sheet is dismissed via close button', async () => {
+    const onClose = vi.fn();
+    wrap(<NewTaskSheet open={true} onClose={onClose} projects={projects} />);
+    // The SheetContent renders a close button with sr-only "Close" text
+    const closeBtn = screen.getByRole('button', { name: /close/i });
+    fireEvent.click(closeBtn);
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('calls onClose after successful create', async () => {
+    const onClose = vi.fn();
+    wrap(<NewTaskSheet open={true} onClose={onClose} projects={projects} />);
+    fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
+    fireEvent.click(screen.getByRole('button', { name: /criar/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  // --- All original NewTaskForm behaviour, preserved ---
+
   it('disables submit when title is blank', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     expect(screen.getByRole('button', { name: /criar/i })).toBeDisabled();
   });
 
   it('calls createTask on submit (no branch → undefined)', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     fireEvent.click(screen.getByRole('button', { name: /criar/i }));
     await waitFor(() => {
@@ -70,13 +101,13 @@ describe('NewTaskForm', () => {
   });
 
   it('rejects whitespace-only title', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: '   ' } });
     expect(screen.getByRole('button', { name: /criar/i })).toBeDisabled();
   });
 
   it('clears form after successful create', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     const titleInput = screen.getByLabelText(/título/i) as HTMLInputElement;
     fireEvent.change(titleInput, { target: { value: 'A' } });
     fireEvent.click(screen.getByRole('button', { name: /criar/i }));
@@ -84,13 +115,13 @@ describe('NewTaskForm', () => {
   });
 
   it('Avançado <details> is collapsed by default', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     const details = screen.getByText('Avançado').closest('details') as HTMLDetailsElement;
     expect(details.open).toBe(false);
   });
 
   it('branch placeholder reflects slug preview from title', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     const titleInput = screen.getByLabelText(/título/i);
     fireEvent.change(titleInput, { target: { value: 'Refactor Login Flow' } });
     const branchInput = screen.getByLabelText(/task-branch/i) as HTMLInputElement;
@@ -98,20 +129,20 @@ describe('NewTaskForm', () => {
   });
 
   it('branch placeholder falls back to "auto-slug do título" when title empty', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     const branchInput = screen.getByLabelText(/task-branch/i) as HTMLInputElement;
     expect(branchInput.placeholder).toBe('auto-slug do título');
   });
 
   it('branch placeholder falls back when title only punctuation', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: '!!!' } });
     const branchInput = screen.getByLabelText(/task-branch/i) as HTMLInputElement;
     expect(branchInput.placeholder).toBe('auto-slug do título');
   });
 
   it('submitting with non-empty branch passes it to mutation', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     fireEvent.change(screen.getByLabelText(/task-branch/i), {
       target: { value: 'feature/jira-123' },
@@ -126,11 +157,7 @@ describe('NewTaskForm', () => {
   });
 
   it('submitting without touching branch omits the field from the payload', async () => {
-    // The branch input is optional; not touching it (empty string default)
-    // should send a payload without a `branch` key. (Whitespace values are
-    // blocked at the HTML5 pattern layer, so we cover the realistic flow:
-    // user types title + project, leaves Avançado collapsed, clicks Criar.)
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     fireEvent.click(screen.getByRole('button', { name: /criar/i }));
     await waitFor(() => {
@@ -141,7 +168,7 @@ describe('NewTaskForm', () => {
   });
 
   it('submitting with valid branch sends branch in the payload', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     fireEvent.change(screen.getByLabelText(/task-branch/i), {
       target: { value: 'feature/jira-123' },
@@ -156,14 +183,14 @@ describe('NewTaskForm', () => {
   });
 
   it('branch input has pattern attribute for browser-level validation', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     const branchInput = screen.getByLabelText(/task-branch/i) as HTMLInputElement;
     expect(branchInput.pattern).toBe('^[a-z0-9][a-z0-9._/-]*$');
     expect(branchInput.maxLength).toBe(200);
   });
 
   it('branch input pattern rejects invalid input ("Bad Branch")', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     const branchInput = screen.getByLabelText(/task-branch/i) as HTMLInputElement;
     fireEvent.change(branchInput, { target: { value: 'Bad Branch' } });
@@ -171,7 +198,7 @@ describe('NewTaskForm', () => {
   });
 
   it('branch input pattern accepts valid slug', () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     const branchInput = screen.getByLabelText(/task-branch/i) as HTMLInputElement;
     fireEvent.change(branchInput, { target: { value: 'feature/jira-123' } });
@@ -179,7 +206,7 @@ describe('NewTaskForm', () => {
   });
 
   it('clears branch field after successful create', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     const branchInput = screen.getByLabelText(/task-branch/i) as HTMLInputElement;
     fireEvent.change(branchInput, { target: { value: 'my-branch' } });
@@ -188,14 +215,14 @@ describe('NewTaskForm', () => {
   });
 
   it('renders template dropdown with options from catalog', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     await waitFor(() => screen.getByText(/frontend/));
     const select = screen.getByLabelText('template') as HTMLSelectElement;
     expect([...select.options].map((o) => o.value)).toEqual(['', 'frontend', 'bugfix']);
   });
 
   it('shows branch hint when template + title provided + no branch override', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     await waitFor(() => screen.getByText(/frontend/));
     await userEvent.type(screen.getByLabelText('título'), 'Add dark mode');
     await userEvent.selectOptions(screen.getByLabelText('template'), 'frontend');
@@ -203,7 +230,7 @@ describe('NewTaskForm', () => {
   });
 
   it('shows override hint when template + branch typed', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     await waitFor(() => screen.getByText(/frontend/));
     await userEvent.selectOptions(screen.getByLabelText('template'), 'frontend');
     const branchInput = screen.getByLabelText('task-branch');
@@ -212,7 +239,7 @@ describe('NewTaskForm', () => {
   });
 
   it('submit includes template in payload when selected', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     await waitFor(() => screen.getByText(/frontend/));
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     await userEvent.selectOptions(screen.getByLabelText('template'), 'frontend');
@@ -228,7 +255,7 @@ describe('NewTaskForm', () => {
   });
 
   it('submit omits template when not selected', async () => {
-    wrap(<NewTaskForm projects={projects} />);
+    wrap(<NewTaskSheet open={true} onClose={vi.fn()} projects={projects} />);
     await waitFor(() => screen.getByText(/frontend/));
     fireEvent.change(screen.getByLabelText(/título/i), { target: { value: 'A' } });
     fireEvent.click(screen.getByRole('button', { name: /criar/i }));

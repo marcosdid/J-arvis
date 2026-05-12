@@ -140,6 +140,7 @@ export function Kanban({ filters, onCardClick }: Props) {
               name={col}
               tasks={buckets[col]}
               projects={projectMap}
+              {...(projects.data?.[0]?.id ? { defaultProjectId: projects.data[0].id } : {})}
               {...(onCardClick ? { onCardClick } : {})}
             />
           ))}
