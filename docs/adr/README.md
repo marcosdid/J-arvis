@@ -36,3 +36,4 @@ Registro de decisões arquiteturais. Estilo Michael Nygard.
 | [0019](0019-manifest-services-dict-com-depends-on.md) | Manifesto F6 é `services:` dict com `depends_on` | Accepted | 2026-05-11 |
 | [0020](0020-bootstrap-via-sessao-claude-efemera.md) | Bootstrap de manifesto via sessão Claude efêmera + file watcher | Accepted | 2026-05-11 |
 | [0021](0021-catalog-yaml-curado-templates-perfis.md) | Catálogo YAML curado pra templates + perfis (F7) | Accepted | 2026-05-11 |
+| [0022](0022-sessao-master-claude-no-sidebar-web.md) | Sessão master Claude no sidebar web (F8) | Accepted | 2026-05-12 |
