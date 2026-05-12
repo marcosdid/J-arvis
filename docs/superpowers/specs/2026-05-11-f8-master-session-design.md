@@ -23,6 +23,10 @@ Durante brainstorm, a feature foi **reformulada** pra uma ambição maior: uma *
 | 5 | **Fora de F8 inicial**: start_session, start_run, manage worktrees, edit projects. Master planeja, usuário executa. | YAGNI + safety. Pode ser ampliado em F8+1 se houver demanda. |
 | 6 | **Persistência via Claude CLI `--resume <session-id>`**. Daemon grava `claude_session_id` no banco; no restart spawna `claude --resume <id>` → Claude lembra naturalmente do jsonl que ele mesmo persiste em `~/.claude/projects/.../`. | Sem trabalho de persistência custom. Claude já tem a primitiva certa. |
 | 7 | **Uma única sessão global** (não per-project, não múltiplas conversas paralelas). | YAGNI. Master vê todos projetos via tools; contexto implícito do projeto ativo pode vir em F8+1. |
+| 8 | **`cwd` do master session é XDG user data dir** (`~/.local/share/j-arvis/master/` em Linux). Daemon cria o dir se não existir. | Master é app-global, não project-specific. Não suja repos. Persiste `.ai-jail` config + settings.json entre restarts (necessários pro `--resume` funcionar). |
+| 9 | **Hook system (F2) NÃO participa no master**. `settings.json` do master tem `mcpServers` + token; NÃO tem `hooks` (URLs de status). | Hooks de F2 são per-task lifecycle. Master é global e não tem ciclo de "session started/stopped" no sentido do F4. Status (idle/active) também não faz sentido pra uma sessão sempre rodando. |
+| 10 | **PtyMultiplexer overflow policy**: queue full → unsubscribe o consumer lento. | Single tab travada não pode matar o `_read_loop` (que serve todas as tabs). Sacrificar o lento mantém o sistema vivo. Tab desconectada vê erro no console + reconecta. |
+| 11 | **WS protocol message types**: `input`/`output`/`resize`/`system`. Sistema messages carregam `{type:"system", level:"warn"\|"error", message:"..."}` pra notificações (ex: `--resume` falhou). | Sem isso, a UI não tem como surfaceá erros não-fatais. Manter o protocolo curto: 4 tipos, sem expansão prematura. |
 
 ## 3. Modelo de dados
 
@@ -118,7 +122,40 @@ class MasterSessionRuntime:
         return MasterPtyHandle(pid, fd, session_id, datetime.now(UTC))
 ```
 
-**Produção:** `SubprocessPtyOps` usa `os.openpty()` + `subprocess.Popen` com stdin/stdout/stderr=slave_fd. Async I/O via `loop.add_reader` no master_fd.
+**Produção:** `SubprocessPtyOps` usa `os.openpty()` + `subprocess.Popen` com stdin/stdout/stderr=slave_fd. Async I/O via `loop.add_reader` no master_fd. **Linux/macOS only** (Windows out of scope; `loop.add_reader` não funciona no ProactorEventLoop).
+
+**Spawn error policy:** se `MasterSessionRuntime.spawn` falha (ai-jail não no PATH, openpty falha, etc.), `lifespan` loga erro mas **NÃO aborta o daemon** — o J-arvis sobe sem master session, UI mostra estado degradado (`<MasterSidebar />` recebe `{type:"system", level:"error", message:"master indisponível: ..."}` ao conectar WS). Usuário pode usar o Kanban normalmente. Restart manual via endpoint `POST /api/master/restart` em F8+1 (out of scope inicial; pra agora restart do daemon é o único caminho).
+
+**Settings.json escrito por `write_master_settings`:**
+
+```json
+{
+  "mcpServers": {
+    "j-arvis-master": {
+      "type": "http",
+      "url": "http://localhost:8765/api/mcp",
+      "headers": {
+        "Authorization": "Bearer <token-gerado-por-boot>"
+      }
+    }
+  }
+}
+```
+
+Local: `<cwd>/.claude/settings.json` (Claude Code lê settings.json relativos ao cwd). `<cwd>` é o XDG user data dir (decisão 8: `~/.local/share/j-arvis/master/`).
+
+**`.ai-jail` config escrito por `write_master_aijail_config`:**
+
+```toml
+command = ["claude", "--dangerously-skip-permissions", "--resume", "<claude_session_id>"]
+rw_maps = []
+ro_maps = []
+hide_dotdirs = []
+mask = []
+allow_tcp_ports = [8765]
+```
+
+`allow_tcp_ports = [8765]` é necessário pra Claude (dentro do jail) acessar o MCP server na porta do daemon. Difere da F1+ config que tem `allow_tcp_ports = []`.
 
 **Comparação `AiJailRuntime` (F1+) vs `MasterSessionRuntime` (F8):**
 
@@ -126,64 +163,164 @@ class MasterSessionRuntime:
 |---|---|---|
 | Saída terminal | gnome-terminal/konsole nativo | PTY pair (master_fd → WebSocket → xterm.js) |
 | Claude flags | catalog perfil (yolo/default/read-only) | sempre `--dangerously-skip-permissions --resume <id>` |
-| Settings.json | hooks (F2) + tokens | hooks + tokens + **MCP server config** (novo) |
+| Settings.json | hooks (F2) + tokens | **NÃO tem hooks** — só `mcpServers` config + MCP bearer token (decisão 9) |
 | Lifecycle | 1 por task, ephemeral | 1 global, restartável via `--resume` |
 | Catalog (F7) | usa | bypass (master é privilegiado) |
 
-## 6. MCP server
+## 6. MCP server (Streamable HTTP transport)
 
-**Novo módulo** `orchestrator/mcp/server.py` — FastAPI sub-app montada em `/api/mcp`:
+**Protocolo correto.** MCP usa JSON-RPC 2.0 sobre Streamable HTTP — não REST per-tool. Spec oficial: `POST /api/mcp` é o ÚNICO endpoint; todas as operações são JSON-RPC messages diferenciadas por `method` (`tools/list`, `tools/call`, etc.). Headers obrigatórios: `MCP-Protocol-Version: 2025-11-25` (versão atual) e `MCP-Session-Id` (após handshake `initialize`). Response: `Content-Type: application/json` (single) ou `text/event-stream` (streaming).
+
+**Novo módulo** `orchestrator/mcp/server.py`. Usa o SDK oficial Python (`mcp>=1.0` — nova dep) que cuida do transport e roteamento JSON-RPC:
 
 ```python
-mcp_app = FastAPI(title="J-arvis Master MCP")
+import json
+from mcp.server import Server
+from mcp.types import Tool, TextContent
 
-def _auth(token: str = Header(..., alias="X-MCP-Token")) -> None:
-    if token != app.state.master_mcp_token:
-        raise HTTPException(401, "invalid MCP token")
+# Server é construído uma vez no module level; tools registrados via decorators
+mcp_server = Server("j-arvis-master")
 
 
-@mcp_app.post("/tools/list_projects", dependencies=[Depends(_auth)])
-async def tool_list_projects(...) -> list[ProjectRead]: ...
+@mcp_server.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(name="list_projects", description="List all projects.",
+             inputSchema={"type": "object", "properties": {}}),
+        Tool(name="get_project", description="Get a project by id.",
+             inputSchema={"type": "object", "required": ["project_id"],
+                          "properties": {"project_id": {"type": "string"}}}),
+        Tool(name="list_tasks", description="List tasks, optionally filtered.",
+             inputSchema={
+                 "type": "object",
+                 "properties": {
+                     "project_id": {"type": "string"},
+                     "state": {"type": "string",
+                               "enum": ["idea", "ready", "in_progress", "review", "done", "discarded"]},
+                 },
+             }),
+        Tool(name="get_task", description="Get a task by id.",
+             inputSchema={"type": "object", "required": ["task_id"],
+                          "properties": {"task_id": {"type": "string"}}}),
+        Tool(name="create_task", description="Create a new task.",
+             inputSchema={
+                 "type": "object",
+                 "required": ["project_id", "title"],
+                 "properties": {
+                     "project_id": {"type": "string"},
+                     "title": {"type": "string"},
+                     "description": {"type": "string"},
+                     "template": {"type": "string",
+                                  "enum": ["frontend", "backend", "refactor", "bugfix"]},
+                     "branch": {"type": "string"},
+                 },
+             }),
+        Tool(name="update_task", description="Update fields on a task (state machine respected).",
+             inputSchema={
+                 "type": "object",
+                 "required": ["task_id"],
+                 "properties": {
+                     "task_id": {"type": "string"},
+                     "title": {"type": "string"},
+                     "description": {"type": "string"},
+                     "template": {"type": "string"},
+                     "state": {"type": "string"},
+                     "branch": {"type": "string"},
+                 },
+             }),
+        Tool(name="discard_task", description="Move task to discarded state.",
+             inputSchema={"type": "object", "required": ["task_id"],
+                          "properties": {"task_id": {"type": "string"}}}),
+    ]
 
-@mcp_app.post("/tools/list_tasks", dependencies=[Depends(_auth)])
-async def tool_list_tasks(
-    project_id: str | None = None,
-    state: str | None = None,
-    ...
-) -> list[TaskRead]: ...
 
-@mcp_app.post("/tools/get_task", dependencies=[Depends(_auth)])
-async def tool_get_task(task_id: str, ...) -> TaskRead: ...
+@mcp_server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    """Dispatch JSON-RPC tool calls. Dependencies vêm do request context."""
+    ctx = mcp_server.request_context
+    db: AsyncSession = ctx.state["db"]
+    catalog: Catalog = ctx.state["catalog"]
+    broadcaster: WsBroadcaster = ctx.state["broadcaster"]
 
-@mcp_app.post("/tools/create_task", dependencies=[Depends(_auth)])
-async def tool_create_task(...) -> TaskRead:
-    # Reusa core.tasks.create_task (catalog, slugify, etc.)
-    ...
-
-@mcp_app.post("/tools/update_task", dependencies=[Depends(_auth)])
-async def tool_update_task(...) -> TaskRead: ...
-
-@mcp_app.post("/tools/discard_task", dependencies=[Depends(_auth)])
-async def tool_discard_task(task_id: str, ...) -> TaskRead:
-    # Equivalente a PATCH state=discarded (reusa state machine F4)
-    ...
+    if name == "list_projects":
+        rows = await list_projects(db)
+        return [TextContent(type="text", text=json.dumps([_serialize(r) for r in rows]))]
+    if name == "create_task":
+        task = await create_task(db, catalog=catalog, **arguments)
+        await broadcaster.publish(WsEvent.task_created(
+            task_id=task.id, project_id=task.project_id, title=task.title, state=task.state,
+        ))
+        return [TextContent(type="text", text=_serialize_task(task))]
+    if name == "update_task":
+        task_id = arguments.pop("task_id")
+        task = await update_task(db, task_id, catalog=catalog, **arguments)
+        await broadcaster.publish(WsEvent.task_updated(...))
+        return [TextContent(type="text", text=_serialize_task(task))]
+    if name == "discard_task":
+        task = await update_task(db, arguments["task_id"], state="discarded", catalog=catalog)
+        await broadcaster.publish(WsEvent.task_updated(...))
+        return [TextContent(type="text", text=_serialize_task(task))]
+    # ... resto dos tools (get_*, list_*) seguem o mesmo padrão (read-only, sem broadcast)
+    raise ValueError(f"unknown tool {name!r}")
 ```
+
+**Auth via Streamable HTTP**: usa `Authorization: Bearer <token>` (padrão HTTP, não custom header). Token único por boot do daemon:
+
+```python
+# Em create_app lifespan:
+app.state.master_mcp_token = secrets.token_urlsafe(32)
+
+
+async def _verify_mcp_auth(request: Request) -> None:
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "missing bearer token")
+    if auth[7:] != request.app.state.master_mcp_token:
+        raise HTTPException(401, "invalid MCP token")
+```
+
+**Mount em FastAPI**: o SDK MCP fornece `StreamableHttpServerTransport` que é um ASGI app montável. Em `main.py:create_app`:
+
+```python
+from mcp.server.streamable_http import StreamableHttpServerTransport
+from orchestrator.mcp.server import mcp_server, build_mcp_app
+
+mcp_asgi = build_mcp_app(
+    server=mcp_server,
+    state_provider=lambda req: {
+        # Cada request recebe estes recursos via ctx.state no call_tool
+        "db": req.app.state.database,
+        "catalog": req.app.state.catalog,
+        "broadcaster": req.app.state.ws_broadcaster,
+        "git_ops": req.app.state.git_ops,
+    },
+    auth=_verify_mcp_auth,
+)
+app.mount("/api/mcp", mcp_asgi)
+```
+
+`build_mcp_app` é nosso wrapper (a definir em F8.c) que: cria o `StreamableHttpServerTransport`, embrulha em middleware ASGI que valida auth e injeta deps no `mcp_server.request_context.state` antes do handler rodar.
+
+**Catalog injection (explícito):** o SDK MCP **não** suporta `Depends()` no `call_tool`. A injeção do `Catalog` é feita via `request_context.state` (set via middleware no mount). O handler de cada tool lê `ctx.state["catalog"]` e passa pro `core.tasks.create_task(..., catalog=catalog)` — mesma assinatura F7.
 
 **Tool inventory:**
 
-| Tool | Input | Output | Side effect |
+| Tool | Input (JSON Schema simplificado) | Output | Side effect |
 |---|---|---|---|
-| `list_projects` | (none) | `[Project]` | none |
-| `get_project` | `project_id: str` | `Project` | none |
-| `list_tasks` | `project_id?: str`, `state?: str` | `[Task]` | none |
-| `get_task` | `task_id: str` | `Task` | none |
-| `create_task` | `project_id, title, description?, template?, branch?` | `Task` | INSERT + WS broadcast |
-| `update_task` | `task_id, {title?, description?, template?, state?, branch?}` | `Task` | UPDATE + WS broadcast |
-| `discard_task` | `task_id` | `Task` | state machine transition + WS broadcast |
+| `list_projects` | `{}` | `[Project]` JSON | none |
+| `get_project` | `{project_id}` | `Project` JSON | none |
+| `list_tasks` | `{project_id?, state?}` | `[Task]` JSON | none |
+| `get_task` | `{task_id}` | `Task` JSON | none |
+| `create_task` | `{project_id, title, description?, template?, branch?}` | `Task` JSON | INSERT + WS `task_created` broadcast pra Kanban subscribers |
+| `update_task` | `{task_id, fields...}` | `Task` JSON | UPDATE + WS `task_updated` |
+| `discard_task` | `{task_id}` | `Task` JSON | state→discarded + WS `task_updated` |
 
-**Auth:** token único gerado por boot do daemon (`secrets.token_urlsafe(32)`), armazenado em `app.state.master_mcp_token`. Token é injetado no `settings.json` que vive dentro do `.ai-jail` jail do master — não acessível pelo usuário. Rotaciona a cada restart.
+**Reuso F7:** `create_task` MCP recebe `template` opcional e passa pelo mesmo `core.tasks.create_task` — resolve perfil, gera branch via prefix, raise `InvalidTemplateError` se template não existe. O erro vira JSON-RPC error response `{code: -32602, message: "Invalid params: template_not_in_catalog: valid=['frontend',...]"}` que Claude vê e pode reagir (corrigir + reenviar).
 
-**Reuso F7:** `create_task` MCP recebe `template` opcional e segue o mesmo path do `core.tasks.create_task` — resolve perfil, gera branch via prefix, raise `InvalidTemplateError` se template não existe no catálogo.
+**MCP write echo policy** (decisão explícita):
+- Tool response é a **fonte de verdade pra Claude** (ele recebe o `Task` row criado/editado direto na response do `tools/call`)
+- WS broadcasts (`task_created`, `task_updated`) vão pra **subscribers do Kanban via WS existente** (F2 `/ws/sessions`), NÃO ecoam de volta pra master PTY
+- Master não recebe events de "task changed by someone else" — sem loop reativo possível. Fora de scope F8 ter Claude reagir a mudanças externas.
 
 ## 7. WebSocket bridge
 
@@ -197,14 +334,30 @@ async def master_ws(websocket: WebSocket, request: Request) -> None:
     Múltiplas tabs do browser conectam simultaneamente. Fazem multiplex
     no MESMO PTY (single global). Output broadcast pra todas as tabs.
     """
+    # Race protection: PTY pode ainda não estar pronto (lifespan slow) ou
+    # ter falhado o spawn. Fechar com close code 1011 (server error) + razão.
+    handle = getattr(request.app.state, "master_handle", None)
+    multiplexer = getattr(request.app.state, "master_multiplexer", None)
+    if handle is None or multiplexer is None:
+        await websocket.accept()
+        await websocket.send_json({
+            "type": "system", "level": "error",
+            "message": "master session not available",
+        })
+        await websocket.close(code=1011, reason="master_not_ready")
+        return
+
     await websocket.accept()
-    handle: MasterPtyHandle = request.app.state.master_handle
-    multiplexer: PtyMultiplexer = request.app.state.master_multiplexer
+
+    # Writes ao PTY são serializados via lock — escrita concorrente de 2 tabs
+    # podem interlevar bytes mid-keystroke. Lock garante atomicidade por write().
+    write_lock = request.app.state.master_write_lock  # asyncio.Lock global
 
     async def browser_to_pty() -> None:
         async for msg in websocket.iter_json():
             if msg["type"] == "input":
-                await pty_ops.write(handle.master_fd, msg["data"].encode())
+                async with write_lock:
+                    await pty_ops.write(handle.master_fd, msg["data"].encode())
             elif msg["type"] == "resize":
                 pty_ops.resize(handle.master_fd, msg["rows"], msg["cols"])
 
@@ -234,9 +387,16 @@ class PtyMultiplexer:
         while True:
             chunk = await self._pty.read(self._master_fd, 4096)
             if not chunk:
-                break  # EOF
-            for q in self._subscribers:
-                q.put_nowait(chunk)
+                break  # EOF (PTY morreu)
+            # Decisão 10: subscriber lento que enche queue é desconectado;
+            # nunca bloqueia o reader (que serve todas as tabs).
+            for q in list(self._subscribers):
+                try:
+                    q.put_nowait(chunk)
+                except asyncio.QueueFull:
+                    self._subscribers.discard(q)
+                    # Subscriber dropped — sua WS handler vai detectar (queue.get hangs)
+                    # ou recebe um {type:"system",level:"error","message":"dropped (slow)"} próximo
 
     async def subscribe(self) -> asyncio.Queue[bytes]:
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1024)
@@ -331,41 +491,72 @@ CSS grid no `App.tsx`: Kanban `1fr`, sidebar `400px` (resizable opcional). Sideb
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if database is not None:
         await database.bootstrap()
+        async with database.session() as s:
+            await cleanup_orphan_master_at_startup(s)  # mata PID de boot anterior
+
         # F8: spawn / resume master session
         async with database.session() as s:
             master = await s.get(MasterSession, "singleton")
             session_id = master.claude_session_id if master else None
+
         app.state.master_mcp_token = secrets.token_urlsafe(32)
-        handle = await master_runtime.spawn(
-            cwd=Path("/some/master-cwd"),  # decisão pendente: onde mora o master cwd?
-            claude_session_id=session_id,
-            mcp_url=f"http://localhost:{port}/api/mcp",
-            token=app.state.master_mcp_token,
-        )
-        app.state.master_handle = handle
-        app.state.master_multiplexer = PtyMultiplexer(pty_ops, handle.master_fd)
-        # Persistir/atualizar
-        async with database.session() as s:
-            await s.merge(MasterSession(
-                id="singleton",
-                claude_session_id=handle.claude_session_id,
-                pid=handle.pid,
-                started_at=handle.started_at,
-                last_active=datetime.now(UTC),
-            ))
-            await s.commit()
+        app.state.master_write_lock = asyncio.Lock()
+
+        # XDG user data dir (decisão 8)
+        master_cwd = Path.home() / ".local" / "share" / "j-arvis" / "master"
+        master_cwd.mkdir(parents=True, exist_ok=True)
+
+        try:
+            handle = await master_runtime.spawn(
+                cwd=master_cwd,
+                claude_session_id=session_id,
+                mcp_url=f"http://localhost:{port}/api/mcp",
+                token=app.state.master_mcp_token,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            # Spawn falhou (ex: ai-jail não no PATH, openpty failed).
+            # Daemon SOBE sem master session; UI mostra estado degradado.
+            logger.error("master session spawn failed: %s", exc)
+            app.state.master_handle = None
+            app.state.master_multiplexer = None
+        else:
+            app.state.master_handle = handle
+            app.state.master_multiplexer = PtyMultiplexer(pty_ops, handle.master_fd)
+            # Persistir state atualizado
+            async with database.session() as s:
+                await s.merge(MasterSession(
+                    id="singleton",
+                    claude_session_id=handle.claude_session_id,
+                    pid=handle.pid,
+                    started_at=handle.started_at,
+                    last_active=datetime.now(UTC),
+                ))
+                await s.commit()
+
+            # Detecta se `claude --resume` falhou (jsonl corrompido):
+            # PTY morre rápido (<1s) com exit code != 0. Se acontecer, spawn
+            # de novo com session_id=None (perde história mas sobrevive).
+            # Detalhe: implementado em F8.e via watchdog que monitora EOF
+            # do multiplexer; se EOF em <1s, broadcast system message +
+            # spawn fallback.
+
     yield
-    # Shutdown: kill PTY, atualizar pid=None
-    if hasattr(app.state, "master_handle"):
+
+    # Shutdown
+    if getattr(app.state, "master_multiplexer", None):
         await app.state.master_multiplexer.shutdown()
-        pty_ops.kill(app.state.master_handle.pid)
+    if getattr(app.state, "master_handle", None):
+        try:
+            pty_ops.kill(app.state.master_handle.pid)
+        except ProcessLookupError:
+            pass
+        # Atualiza pid=None no banco pro próximo boot
+        async with database.session() as s:
+            master = await s.get(MasterSession, "singleton")
+            if master:
+                master.pid = None
+                await s.commit()
 ```
-
-**Decisão pendente menor:** `cwd` do master session. Opções:
-- `~/.local/share/j-arvis/master/` (XDG user data dir) — isolado, não suja repos
-- O cwd do projeto ativo no UI — contextual mas muda
-
-Recomendação inicial: XDG user data dir. Master é app-global, não project-specific.
 
 ### Cleanup orphan master at startup
 
@@ -389,41 +580,46 @@ async def cleanup_orphan_master_at_startup(s: AsyncSession) -> None:
 ### Backend unit (`tests/unit/`)
 
 - `test_pty_ops.py` — `FakePtyOps` com queues; spawn retorna pids; read/write/resize/kill chamáveis
-- `test_master_runtime.py` — spawn escreve `.ai-jail` + `settings.json` corretos; novo `session_id` se None; reusa se passado
-- `test_master_settings_writer.py` — `write_master_settings` produz JSON válido com MCP server + token
-- `test_pty_multiplexer.py` — fan-out funciona; subscribe/unsubscribe limpa; shutdown cancela reader task
+- `test_master_runtime.py` — spawn escreve `.ai-jail` + `settings.json` corretos; novo `session_id` se None; reusa se passado; spawn falha (FileNotFoundError) é capturada
+- `test_master_settings_writer.py` — `write_master_settings` produz `mcpServers` JSON válido com bearer token; `write_master_aijail_config` produz TOML com `--resume` flag e `allow_tcp_ports = [<port>]`
+- `test_pty_multiplexer.py` — fan-out funciona; subscribe/unsubscribe limpa; subscriber lento (queue full) é descartado sem matar reader; shutdown cancela reader task
 
 ### Backend integration (`tests/integration/`)
 
-- `test_api_mcp_read_tools.py` — list_projects, list_tasks, get_task com token válido → 200; sem token → 401
-- `test_api_mcp_create_task.py` — POST create_task com template → reusa F7 path; sem template → NULL/NULL; invalid → 422
+- `test_pty_real_subprocess.py` — **PTY integration smoke**: spawna `/bin/echo "hello"` via `SubprocessPtyOps` real, verifica round-trip de bytes via `read()`. Garante que `os.openpty()` + subprocess wiring funciona. Pequeno (~50 lines), single test.
+- `test_api_mcp_read_tools.py` — `tools/list` retorna 7 tools com schemas; `tools/call name=list_tasks` com token válido → 200 + JSON-RPC result; sem token → 401
+- `test_api_mcp_create_task.py` — `tools/call name=create_task` com template → reusa F7 path; sem template → NULL/NULL; template inválido → JSON-RPC error `-32602`
 - `test_api_mcp_update_task.py` — update_task respeita state machine (F4); discard_task vira `state=discarded`
-- `test_api_master_ws.py` — connect → mocked PTY echoes input; multiple connections compartilham PTY
+- `test_api_master_ws.py` — connect → mocked PTY echoes input; multiple connections compartilham PTY; race protection: WS antes do PTY pronto → close 1011 + system message
 - `test_master_session_persists.py` — restart simulado: daemon reusa `claude_session_id` do banco
 - `test_master_cleanup_orphan.py` — PID órfão é morto no startup
+- `test_master_spawn_failure_degraded.py` — `ai-jail` ausente → daemon sobe sem master; WS connect retorna system error; resto da API funciona
 
 ### UI (`ui/src/`)
 
-- `MasterSidebar.test.tsx` — renderiza xterm.js (mock); conecta WS (mock); envia input ao escrever; renderiza output recebido; resize handler
-- Sem coverage gate em xterm.js internals (lib externa marca exclusion)
+- `MasterSidebar.test.tsx` — renderiza xterm.js (mock do construtor); conecta WS (mock); envia input ao escrever; renderiza output recebido; resize handler; exibe system messages como banner
+- xterm.js internals (canvas rendering, buffer manipulation) ficam em `vitest.config.coverage.exclude` — lib externa não conta pro gate
 
-### E2E (host-only)
+### E2E (host-only, `tests/e2e/`)
 
 - `test_f8_master_creates_task.py` — abrir UI, digitar "cria task X no projeto Y" no sidebar via xterm, esperar Claude responder via MCP, verificar task aparece no Kanban
+- **Como Playwright lê do xterm.js**: `MasterSidebar.tsx` expõe `window.__masterTerm = term` (apenas em modo dev/test, condicional a `import.meta.env.MODE !== 'production'`). E2E usa `page.evaluate(() => window.__masterTerm.buffer.active.getLine(N).translateToString())` pra inspecionar conteúdo da scrollback. Sem essa exposição explícita, xterm.js renderiza pra canvas e Playwright não consegue assert de texto.
 
 ## 11. Sub-tasks breakdown (preview)
 
-| ID | Entrega | Tests |
-|---|---|---|
-| **F8.a** | `MasterSession` model + migration 0006 + `PtyProcessOps` Protocol stub | unit (model) |
-| **F8.b** | `MasterSessionRuntime` + `write_master_aijail_config` + `write_master_settings` | unit (runtime + writers) |
-| **F8.c** | MCP server: módulo + tools read-only (list_*, get_*) + auth token | integration (mcp read) |
-| **F8.d** | MCP tools write: create/update/discard_task (reusa core/tasks); WS broadcast | integration (mcp write) |
-| **F8.e** | WebSocket `/ws/master` + `PtyMultiplexer` + lifespan integration | integration (ws + lifecycle) |
-| **F8.f** | UI `<MasterSidebar />` + xterm.js + WebSocket client + integração no App.tsx | UI (sidebar) |
-| **F8.g** | ADR-0022 + ARCHITECTURE F8 ✅ + E2E skeleton + closure | docs + e2e |
+| ID | Entrega | Tests | Depende de |
+|---|---|---|---|
+| **F8.a** | `MasterSession` model + migration 0006 + `PtyProcessOps` Protocol stub | unit (model) | — |
+| **F8.b** | `MasterSessionRuntime` + `write_master_aijail_config` + `write_master_settings` + `SubprocessPtyOps` impl + `test_pty_real_subprocess` smoke | unit + integration (runtime) | F8.a |
+| **F8.c** | MCP server: módulo + tools read-only (list/get) + auth bearer + ASGI mount em `/api/mcp` | integration (mcp read) | F8.a |
+| **F8.d** | MCP tools write: create/update/discard_task (reusa core/tasks); WS broadcast pra Kanban | integration (mcp write) | F8.c |
+| **F8.e** | WebSocket `/ws/master` + `PtyMultiplexer` + lifespan integration + race protection + cleanup_orphan | integration (ws + lifecycle) | F8.b, F8.d |
+| **F8.f** | UI `<MasterSidebar />` + xterm.js (gate: smoke render React 19 compat antes de prosseguir) + WebSocket client + integração no App.tsx + `window.__masterTerm` expose | UI (sidebar) | F8.e |
+| **F8.g** | ADR-0022 + ARCHITECTURE F8 ✅ + E2E skeleton + closure | docs + e2e | F8.f |
 
-7 sub-tasks. Tamanho similar a F7. F8.b e F8.e são os maiores (PTY infrastructure + WS bridge).
+**Paralelização**: F8.b ∥ F8.c (independentes após F8.a). F8.f tem gate de compat na primeira sub-step: instala xterm 5.5 + faz render smoke; se falhar com React 19, abre blocker (fallback: downgrade React em escopo isolado, ou pin xterm versão anterior).
+
+7 sub-tasks. Tamanho similar a F7. F8.b/F8.e são os maiores (PTY infra + WS bridge + race + cleanup).
 
 ## 12. Riscos e mitigações
 
