@@ -1,0 +1,3 @@
+this is not json
+{"type":"user","message":{"role":"user","content":"valid line"},"timestamp":"2026-05-13T10:00:00Z"}
+{"type":"unknown_future_type","payload":"whatever"}

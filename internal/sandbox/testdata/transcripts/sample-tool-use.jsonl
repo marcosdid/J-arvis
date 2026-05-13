@@ -1,0 +1,3 @@
+{"type":"user","message":{"role":"user","content":"leia main.go"},"timestamp":"2026-05-13T10:00:00Z"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"vou ler"},{"type":"tool_use","name":"Read","input":{"file_path":"main.go"}}]},"timestamp":"2026-05-13T10:00:01Z"}
+{"type":"tool_result","content":"package main","timestamp":"2026-05-13T10:00:02Z"}
