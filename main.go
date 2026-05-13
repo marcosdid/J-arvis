@@ -48,7 +48,8 @@ func main() {
 	}
 
 	app := NewApp()
-	health := api.NewHealthAPI()
+	// F10.4.15 wires the real probe; placeholder defaults to false until then.
+	health := api.NewHealthAPI(nil)
 
 	var realBus atomic.Pointer[events.Emitter]
 	lazyBus := &events.LazyEmitter{Resolve: func() events.Emitter {
