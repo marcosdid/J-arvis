@@ -1,0 +1,26 @@
+run:
+  timeout: 3m
+  tests: true
+  build-tags:
+    - webkit2_41
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - gosec
+    - gocritic
+
+linters-settings:
+  gosec:
+    excludes:
+      - G104
+
+issues:
+  exclude-dirs:
+    - ui
+    - build

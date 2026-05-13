@@ -1,0 +1,37 @@
+.PHONY: dev build test test-go test-ui lint clean f10-help
+
+# Build tags required on Ubuntu 24.04+ (webkit2gtk-4.1 instead of -4.0)
+TAGS ?= webkit2_41
+
+f10-help:
+	@echo "F10 port targets (will replace top-level Makefile in F10.8):"
+	@echo "  make -f Makefile.f10 dev        - wails dev (window with HMR)"
+	@echo "  make -f Makefile.f10 build      - wails build (binary in build/bin/)"
+	@echo "  make -f Makefile.f10 test       - lint + all tests"
+	@echo "  make -f Makefile.f10 test-go    - go test -race"
+	@echo "  make -f Makefile.f10 test-ui    - cd ui && npm test"
+	@echo "  make -f Makefile.f10 lint       - gofmt + go vet + golangci-lint"
+	@echo "  make -f Makefile.f10 clean      - rm build/bin coverage.out"
+
+dev:
+	wails dev -tags "$(TAGS)"
+
+build:
+	wails build -platform linux/amd64 -tags "$(TAGS)"
+
+test: lint test-go test-ui
+
+test-go:
+	go test -race -tags "$(TAGS)" -coverprofile=coverage.out ./internal/...
+
+test-ui:
+	cd ui && npm test -- --run
+
+lint:
+	@out=$$(gofmt -l . | grep -v ui/node_modules | grep -v ui/dist) ; \
+	  if [ -n "$$out" ]; then echo "gofmt issues:"; echo "$$out"; exit 1; fi
+	go vet -tags "$(TAGS)" ./...
+	golangci-lint run
+
+clean:
+	rm -rf build/bin coverage.out
