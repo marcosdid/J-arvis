@@ -1,4 +1,4 @@
-.PHONY: dev build test test-go test-ui lint clean f10-help
+.PHONY: dev build build-e2e-http test test-go test-ui test-e2e lint clean f10-help
 
 # Build tags required on Ubuntu 24.04+ (webkit2gtk-4.1 instead of -4.0)
 TAGS ?= webkit2_41
@@ -19,7 +19,13 @@ dev:
 build:
 	wails build -platform linux/amd64 -tags "$(TAGS)"
 
+build-e2e-http:
+	go build -tags "e2e_http" -o build/bin/jarvis-e2e-http ./cmd/jarvis-e2e-http
+
 test: lint test-go test-ui
+
+test-e2e: build-e2e-http
+	cd ui && npm run build && npx playwright test
 
 test-go:
 	go test -race -tags "$(TAGS)" -coverprofile=coverage.out ./internal/...

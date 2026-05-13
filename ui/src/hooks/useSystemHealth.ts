@@ -9,9 +9,15 @@ export type SystemHealth = {
 };
 
 async function fetchHealth(): Promise<SystemHealth> {
-  const r = await fetch('/api/health');
-  if (!r.ok) throw new Error(`health endpoint ${r.status}`);
-  return r.json();
+  // F10: legacy Python endpoint removed. Synthetic placeholder until the
+  // Go side exposes a HealthAPI.SystemStats binding in a future phase.
+  return {
+    cpu_pct: 0,
+    mem_used_bytes: 0,
+    mem_total_bytes: 0,
+    uptime_seconds: 0,
+    active_alerts_count: 0,
+  };
 }
 
 export function useSystemHealth() {

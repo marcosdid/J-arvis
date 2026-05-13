@@ -63,6 +63,8 @@ func main() {
 	projectsAPI := api.NewProjectsAPI(projectsRepo, lazyBus)
 	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
 
+	startE2EServer(tasksAPI, projectsAPI, masterAPI)
+
 	wailsErr := wails.Run(&options.App{
 		Title:  "J-arvis",
 		Width:  1400,

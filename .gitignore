@@ -51,3 +51,6 @@ build/bin/
 *.log
 .superpowers/
 coverage.out
+ui/test-results/
+ui/playwright-report/
+ui/e2e/.e2e-port
