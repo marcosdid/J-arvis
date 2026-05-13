@@ -156,11 +156,18 @@ function toProject(p: StoreProjectShape): Project {
 const Tasks = TasksBinding;
 const Projects = ProjectsBinding;
 
-function notImplemented(name: string): never {
-  throw new Error(
-    `${name}: not yet ported to the native backend (planned in F10.3+). ` +
-      `If you need this feature, run the legacy Python backend on tag v0.9-python-final.`,
-  );
+// Stubs return safe-empty values rather than throwing — throwing cascades
+// into React Query retry storms that freeze the UI. Real impls land in F10.3+.
+function emptyList<T>(): Promise<T[]> {
+  return Promise.resolve([]);
+}
+function notFound<T>(): Promise<T> {
+  // For "get one or 404" hooks: useRun, etc. They expect a thrown HTTP 404
+  // to mean "no active run" (it gets translated to null by the hook).
+  return Promise.reject(new Error('HTTP 404: not implemented in F10 Block A'));
+}
+function noop(): Promise<void> {
+  return Promise.resolve();
 }
 
 export const api = {
@@ -202,16 +209,23 @@ export const api = {
     return toTask(await Tasks.Patch(id, cleaned));
   },
 
-  // Stubs — not yet ported in F10 Block A
-  listWorktrees: (_projectId: string): Promise<Worktree[]> => notImplemented('listWorktrees'),
-  deleteWorktree: (_id: string): Promise<void> => notImplemented('deleteWorktree'),
-  listSessions: (): Promise<Session[]> => notImplemented('listSessions'),
-  startSession: (_worktreeId: string): Promise<Session> => notImplemented('startSession'),
-  stopSession: (_id: string): Promise<void> => notImplemented('stopSession'),
-  startTaskSession: (_taskId: string): Promise<Session> => notImplemented('startTaskSession'),
-  startRun: (_taskId: string): Promise<Run> => notImplemented('startRun'),
-  getActiveRun: (_taskId: string): Promise<Run> => notImplemented('getActiveRun'),
-  stopRun: (_runId: string): Promise<void> => notImplemented('stopRun'),
-  bootstrapManifest: (_taskId: string): Promise<BootstrapSession> => notImplemented('bootstrapManifest'),
-  getCatalog: (): Promise<Catalog> => notImplemented('getCatalog'),
+  // Stubs — F10 Block A; real impls in F10.3+. Return neutral values to
+  // avoid retry storms in React Query.
+  listWorktrees: (_projectId: string): Promise<Worktree[]> => emptyList<Worktree>(),
+  deleteWorktree: (_id: string): Promise<void> => noop(),
+  listSessions: (): Promise<Session[]> => emptyList<Session>(),
+  startSession: (_worktreeId: string): Promise<Session> => notFound<Session>(),
+  stopSession: (_id: string): Promise<void> => noop(),
+  startTaskSession: (_taskId: string): Promise<Session> => notFound<Session>(),
+  startRun: (_taskId: string): Promise<Run> => notFound<Run>(),
+  getActiveRun: (_taskId: string): Promise<Run> => notFound<Run>(),
+  stopRun: (_runId: string): Promise<void> => noop(),
+  bootstrapManifest: (_taskId: string): Promise<BootstrapSession> => notFound<BootstrapSession>(),
+  getCatalog: (): Promise<Catalog> =>
+    Promise.resolve({
+      version: '1',
+      fallback_permission_profile: 'default',
+      permission_profiles: [{ name: 'default', description: 'F10 default', claude_args: [] }],
+      templates: [],
+    }),
 };
