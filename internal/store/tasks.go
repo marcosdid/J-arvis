@@ -14,16 +14,17 @@ import (
 var ErrTaskNotFound = errors.New("task not found")
 
 type Task struct {
-	ID                string
-	ProjectID         string
-	Title             string
-	Description       string
-	State             string
-	Branch            *string
-	Template          *string
-	PermissionProfile *string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                string    `json:"id"`
+	ProjectID         string    `json:"project_id"`
+	Title             string    `json:"title"`
+	Description       string    `json:"description"`
+	State             string    `json:"state"`
+	Branch            *string   `json:"branch"`
+	Template          *string   `json:"template"`
+	PermissionProfile *string   `json:"permission_profile"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	ActiveSessionID   *string   `json:"active_session_id"`
 }
 
 type TaskFilters struct {
@@ -48,7 +49,7 @@ func NewTasksRepo(db *sql.DB) *TasksRepo {
 	return &TasksRepo{db: db}
 }
 
-const tasksSelect = `SELECT id, project_id, title, description, state, branch, template, permission_profile, created_at, updated_at FROM tasks`
+const tasksSelect = `SELECT id, project_id, title, description, state, branch, template, permission_profile, created_at, updated_at, NULL AS active_session_id FROM tasks`
 
 func (r *TasksRepo) List(ctx context.Context, f TaskFilters) ([]Task, error) {
 	q := tasksSelect
@@ -168,6 +169,7 @@ type rowScanner interface {
 func scanTask(r rowScanner) (Task, error) {
 	var t Task
 	err := r.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Description, &t.State,
-		&t.Branch, &t.Template, &t.PermissionProfile, &t.CreatedAt, &t.UpdatedAt)
+		&t.Branch, &t.Template, &t.PermissionProfile, &t.CreatedAt, &t.UpdatedAt,
+		&t.ActiveSessionID)
 	return t, err
 }

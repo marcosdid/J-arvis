@@ -1,0 +1,36 @@
+package events
+
+type Emitter interface {
+	Emit(name string, payload any)
+}
+
+// LazyEmitter defers emit calls until an underlying Emitter is available.
+// This is needed because Wails' runtime context is only valid after
+// OnStartup fires — but Bind() runs earlier, so API constructors receive
+// a LazyEmitter and resolve the real emitter at emit-time.
+type LazyEmitter struct {
+	Resolve func() Emitter
+}
+
+func (l *LazyEmitter) Emit(name string, payload any) {
+	if l.Resolve == nil {
+		return
+	}
+	if e := l.Resolve(); e != nil {
+		e.Emit(name, payload)
+	}
+}
+
+// FakeEmitter records emitted events for tests.
+type FakeEmitter struct {
+	Calls []EmitCall
+}
+
+type EmitCall struct {
+	Name    string
+	Payload any
+}
+
+func (f *FakeEmitter) Emit(name string, payload any) {
+	f.Calls = append(f.Calls, EmitCall{Name: name, Payload: payload})
+}
