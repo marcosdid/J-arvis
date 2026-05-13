@@ -3,10 +3,14 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 
 	"github.com/marcosdid/jarvis/internal/core"
@@ -167,4 +171,86 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /e2e/master/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, s.master.Status())
 	})
+
+	mux.HandleFunc("POST /e2e/worktrees/list_by_project", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ ProjectID string `json:"project_id"` }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out, err := s.worktrees.ListByProject(req.ProjectID)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, out)
+	})
+	mux.HandleFunc("POST /e2e/worktrees/delete", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ ID string `json:"id"` }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := s.worktrees.Delete(req.ID); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /e2e/fixtures/init-git", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Name    string   `json:"name"`
+			SubDirs []string `json:"sub_dirs,omitempty"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		base := filepath.Join(os.TempDir(), "jarvis-e2e", "projects", req.Name)
+		_ = os.RemoveAll(base)
+		if len(req.SubDirs) == 0 {
+			if err := initGitDir(base); err != nil {
+				writeErr(w, 500, err)
+				return
+			}
+		} else {
+			if err := os.MkdirAll(base, 0o755); err != nil {
+				writeErr(w, 500, err)
+				return
+			}
+			for _, sub := range req.SubDirs {
+				if err := initGitDir(filepath.Join(base, sub)); err != nil {
+					writeErr(w, 500, err)
+					return
+				}
+			}
+		}
+		writeJSON(w, map[string]string{"path": base})
+	})
+	mux.HandleFunc("POST /e2e/fixtures/git-worktree-add", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			RepoPath   string `json:"repo_path"`
+			TargetPath string `json:"target_path"`
+			Branch     string `json:"branch"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		cmd := exec.Command("git", "-C", req.RepoPath, "worktree", "add", req.TargetPath, "-b", req.Branch)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			writeErr(w, 500, fmt.Errorf("git worktree add: %s", stderr.String()))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+func initGitDir(p string) error {
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		return err
+	}
+	cmds := [][]string{
+		{"init", "-q"},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "init"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command("git", append([]string{"-C", p}, args...)...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git %v: %s", args, stderr.String())
+		}
+	}
+	return nil
 }

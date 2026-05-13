@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openApp } from './helpers';
+import { openApp, initGitFixture } from './helpers';
 
 test('app loads — kanban shell renders, header shows "+ new task"', async ({ page }) => {
   await openApp(page);
@@ -15,7 +15,7 @@ test('create a project via drawer, then create a task on kanban', async ({ page 
 
   // Fill the create-project form.
   const name = `e2e-project-${Date.now()}`;
-  const path = `/tmp/${name}`;
+  const path = await initGitFixture({ name });
   await page.getByLabel('project-name').fill(name);
   await page.getByLabel('project-path').fill(path);
   await page.getByRole('form', { name: 'add-project' }).getByRole('button').click();

@@ -1,10 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
-import { openApp, e2ePort } from './helpers';
+import { openApp, e2ePort, initGitFixture } from './helpers';
 
 async function createProject(page: Page, name: string): Promise<void> {
+  const path = await initGitFixture({ name });
   await page.getByRole('button', { name: /projects/i }).first().click();
   await page.getByLabel('project-name').fill(name);
-  await page.getByLabel('project-path').fill(`/tmp/${name}`);
+  await page.getByLabel('project-path').fill(path);
   await page.getByRole('form', { name: 'add-project' }).getByRole('button').click();
   await expect(page.locator('section.project-node').filter({ hasText: name })).toBeVisible({ timeout: 5_000 });
   await page.keyboard.press('Escape');
