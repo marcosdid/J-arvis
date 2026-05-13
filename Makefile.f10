@@ -1,18 +1,74 @@
-.PHONY: dev build build-e2e-http test test-go test-ui test-e2e lint clean f10-help
+.PHONY: start doctor install build-ui build-bin run dev build build-e2e-http test test-go test-ui test-e2e lint clean f10-help
 
 # Build tags required on Ubuntu 24.04+ (webkit2gtk-4.1 instead of -4.0)
 TAGS ?= webkit2_41
+BIN  := build/bin/jarvis
+
+# ----- one-shot bootstrap + launch -----
+# `make -f Makefile.f10 start` installs deps, builds, and launches the app.
+# Idempotent: re-runs skip steps whose outputs are fresh.
+start: doctor install build-bin run
 
 f10-help:
-	@echo "F10 port targets (will replace top-level Makefile in F10.8):"
-	@echo "  make -f Makefile.f10 dev        - wails dev (window with HMR)"
-	@echo "  make -f Makefile.f10 build      - wails build (binary in build/bin/)"
-	@echo "  make -f Makefile.f10 test       - lint + all tests"
-	@echo "  make -f Makefile.f10 test-go    - go test -race"
-	@echo "  make -f Makefile.f10 test-ui    - cd ui && npm test"
-	@echo "  make -f Makefile.f10 lint       - gofmt + go vet + golangci-lint"
-	@echo "  make -f Makefile.f10 clean      - rm build/bin coverage.out"
+	@echo ""
+	@echo "J-arvis F10 (native Wails app) — common targets:"
+	@echo ""
+	@echo "  make -f Makefile.f10 start       FIRST RUN — installs deps, builds, launches"
+	@echo "  make -f Makefile.f10 run         launch existing build/bin/jarvis"
+	@echo "  make -f Makefile.f10 build-bin   rebuild the binary only"
+	@echo "  make -f Makefile.f10 dev         wails dev mode (window with HMR)"
+	@echo ""
+	@echo "  make -f Makefile.f10 test        lint + go tests + UI tests"
+	@echo "  make -f Makefile.f10 test-e2e    Playwright E2E (spawns binary)"
+	@echo "  make -f Makefile.f10 lint        gofmt + go vet + golangci-lint"
+	@echo "  make -f Makefile.f10 clean       remove build artifacts"
+	@echo ""
+	@echo "Environment variables (optional):"
+	@echo "  JARVIS_DB_PATH       SQLite path (default: ~/.local/share/jarvis/jarvis.db)"
+	@echo "  JARVIS_CLAUDE_BIN    Path to claude binary (default: 'claude' on PATH)"
+	@echo ""
 
+# ----- prereq checks -----
+doctor:
+	@echo ">>> [doctor] checking prerequisites"
+	@command -v go            >/dev/null || (echo "MISSING: go (install Go 1.22+)" ; exit 1)
+	@command -v node          >/dev/null || (echo "MISSING: node (install Node 20+)" ; exit 1)
+	@command -v pnpm          >/dev/null || (echo "MISSING: pnpm (npm i -g pnpm)" ; exit 1)
+	@pkg-config --exists webkit2gtk-4.1 || (echo "MISSING: libwebkit2gtk-4.1-dev (sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config)" ; exit 1)
+	@pkg-config --exists gtk+-3.0       || (echo "MISSING: libgtk-3-dev (sudo apt install libgtk-3-dev)" ; exit 1)
+	@echo "    OK: go, node, pnpm, webkit2gtk-4.1, gtk+-3.0"
+
+# ----- deps -----
+install: ui/node_modules go.sum
+
+ui/node_modules: ui/package.json ui/pnpm-lock.yaml
+	@echo ">>> [install] pnpm install (ui/)"
+	cd ui && pnpm install
+
+go.sum: go.mod
+	@echo ">>> [install] go mod tidy"
+	go mod tidy
+
+# ----- build -----
+build-ui: ui/dist/index.html
+
+ui/dist/index.html: ui/node_modules $(shell find ui/src -type f 2>/dev/null)
+	@echo ">>> [build-ui] vite build"
+	cd ui && pnpm run build
+
+build-bin: $(BIN)
+
+$(BIN): build-ui $(shell find . -name "*.go" -not -path "./ui/*" -not -path "./build/*" 2>/dev/null) go.sum
+	@echo ">>> [build-bin] go build -tags '$(TAGS) production'"
+	go build -tags "$(TAGS) production" -ldflags "-w -s" -o $(BIN) .
+
+# ----- run -----
+run: $(BIN)
+	@echo ">>> [run] launching $(BIN)"
+	@echo "    Press Ctrl+C in this terminal to quit. Window may open behind other apps."
+	@$(BIN)
+
+# ----- dev workflow -----
 dev:
 	wails dev -tags "$(TAGS)"
 
@@ -25,13 +81,13 @@ build-e2e-http:
 test: lint test-go test-ui
 
 test-e2e: build-e2e-http
-	cd ui && npm run build && npx playwright test
+	cd ui && pnpm run build && npx playwright test
 
 test-go:
 	go test -race -tags "$(TAGS)" -coverprofile=coverage.out ./internal/...
 
 test-ui:
-	cd ui && npm test -- --run
+	cd ui && pnpm test -- --run
 
 lint:
 	@out=$$(gofmt -l . | grep -v ui/node_modules | grep -v ui/dist) ; \
@@ -40,4 +96,4 @@ lint:
 	golangci-lint run
 
 clean:
-	rm -rf build/bin coverage.out
+	rm -rf build/bin coverage.out ui/dist
