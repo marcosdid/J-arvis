@@ -19,15 +19,26 @@ type TasksRepo interface {
 }
 
 type WorktreeCleanupFn func(ctx context.Context, taskID string) error
+type SessionCleanupFn func(ctx context.Context, taskID string) error
 
 type TasksAPI struct {
 	repo            TasksRepo
 	bus             events.Emitter
 	worktreeCleanup WorktreeCleanupFn
+	sessionCleanup  SessionCleanupFn
 }
 
-func NewTasksAPI(repo TasksRepo, bus events.Emitter, cleanup WorktreeCleanupFn) *TasksAPI {
-	return &TasksAPI{repo: repo, bus: bus, worktreeCleanup: cleanup}
+func NewTasksAPI(
+	repo TasksRepo, bus events.Emitter,
+	worktreeCleanup WorktreeCleanupFn,
+	sessionCleanup SessionCleanupFn,
+) *TasksAPI {
+	return &TasksAPI{
+		repo:            repo,
+		bus:             bus,
+		worktreeCleanup: worktreeCleanup,
+		sessionCleanup:  sessionCleanup,
+	}
 }
 
 type CreateTaskInput struct {
@@ -91,6 +102,10 @@ func (a *TasksAPI) Patch(id string, in PatchTaskInput) (*store.Task, error) {
 		}
 		a.bus.Emit("task.updated", updated)
 		if core.IsTerminal(*in.State) {
+			// Sessions cleanup runs BEFORE worktree cleanup: subprocess writing
+			// to a worktree that's about to disappear would become a zombie
+			// writing to a non-existent path. Stop first ensures clean shutdown.
+			a.runSessionCleanup(ctx, id)
 			a.runWorktreeCleanup(ctx, id)
 		}
 		return updated, nil
@@ -110,6 +125,7 @@ func (a *TasksAPI) Discard(id string) error {
 	} else {
 		a.bus.Emit("task.discarded", map[string]string{"id": id})
 	}
+	a.runSessionCleanup(ctx, id)
 	a.runWorktreeCleanup(ctx, id)
 	return nil
 }
@@ -120,5 +136,14 @@ func (a *TasksAPI) runWorktreeCleanup(ctx context.Context, taskID string) {
 	}
 	if err := a.worktreeCleanup(ctx, taskID); err != nil {
 		log.Printf("worktree cleanup for task %s: %v", taskID, err)
+	}
+}
+
+func (a *TasksAPI) runSessionCleanup(ctx context.Context, taskID string) {
+	if a.sessionCleanup == nil {
+		return
+	}
+	if err := a.sessionCleanup(ctx, taskID); err != nil {
+		log.Printf("session cleanup for task %s: %v", taskID, err)
 	}
 }
