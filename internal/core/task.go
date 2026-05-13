@@ -12,3 +12,12 @@ var validTransitions = map[string]map[string]bool{
 func IsValidTransition(from, to string) bool {
 	return validTransitions[from][to]
 }
+
+var terminalStates = map[string]bool{
+	"done":      true,
+	"discarded": true,
+}
+
+// IsTerminal reports whether a task state is terminal: once a task reaches
+// "done" or "discarded", its worktrees should be cleaned up.
+func IsTerminal(state string) bool { return terminalStates[state] }

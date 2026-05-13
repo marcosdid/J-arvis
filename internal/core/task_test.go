@@ -27,3 +27,25 @@ func TestIsValidTransition(t *testing.T) {
 		})
 	}
 }
+
+func TestIsTerminal(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{"idea", false},
+		{"ready", false},
+		{"in_progress", false},
+		{"review", false},
+		{"done", true},
+		{"discarded", true},
+		{"", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.state, func(t *testing.T) {
+			if got := IsTerminal(tc.state); got != tc.want {
+				t.Errorf("IsTerminal(%q) = %v, want %v", tc.state, got, tc.want)
+			}
+		})
+	}
+}
