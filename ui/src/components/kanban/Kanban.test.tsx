@@ -103,4 +103,24 @@ describe('Kanban', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(api.patchTask).not.toHaveBeenCalled();
   });
+
+  it('renders skeleton placeholders while tasks are loading', () => {
+    vi.mocked(api.listTasks).mockReturnValue(new Promise(() => {}) as never);
+    wrap(<Kanban filters={[]} />);
+    expect(screen.getByTestId('kanban-loading')).toBeInTheDocument();
+  });
+
+  it('renders empty state when tasks list is empty', async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    wrap(<Kanban filters={[]} />);
+    expect(await screen.findByTestId('kanban-empty-state')).toBeInTheDocument();
+    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
+  });
+
+  it('empty state shows CTA hint', async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    wrap(<Kanban filters={[]} />);
+    await screen.findByTestId('kanban-empty-state');
+    expect(screen.getByText(/Create a task to get started/i)).toBeInTheDocument();
+  });
 });

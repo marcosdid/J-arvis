@@ -16,8 +16,10 @@ import { queryKeys } from '../../lib/query-keys';
 import { useTasks } from '../../hooks/useTasks';
 import { usePatchTask } from '../../hooks/useTaskMutations';
 import { KanbanColumn } from './KanbanColumn';
+import { TaskCardSkeleton } from './TaskCardSkeleton';
 
 const COLUMNS = ['Backlog', 'In Progress', 'Review', 'Done', 'Discarded'] as const;
+const SKELETON_COUNT = 4;
 
 type Column = (typeof COLUMNS)[number];
 
@@ -120,6 +122,37 @@ export function Kanban({ filters, onCardClick }: Props) {
     window.addEventListener('test:dragEnd', fromCustom);
     return () => window.removeEventListener('test:dragEnd', fromCustom);
   }, []);
+
+  if (tasks.isLoading) {
+    return (
+      <div className="flex gap-3 p-3 h-full overflow-x-auto" data-testid="kanban-loading">
+        {COLUMNS.map((col) => (
+          <div key={col} className="flex flex-col gap-2 min-w-[200px]">
+            {Array.from({ length: SKELETON_COUNT }, (_, i) => (
+              <TaskCardSkeleton key={i} />
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if ((tasks.data ?? []).length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full" data-testid="kanban-empty-state">
+        <div className="border border-border-subtle p-8 text-center text-text-subtle relative">
+          <pre className="text-text-faint text-xs leading-tight mb-3">
+{`┌─────────────────┐
+│   no tasks yet  │
+└─────────────────┘`}
+          </pre>
+          <p className="text-xs">
+            Create a task to get started — press <kbd className="text-accent-primary">[N]</kbd> or click <span className="text-accent-primary">+ new task</span> above.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

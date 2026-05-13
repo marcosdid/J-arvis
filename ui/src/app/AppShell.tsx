@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import { AppHeader } from '@/components/header/AppHeader';
 import { HudTopBar } from '@/components/hud/HudTopBar';
+import { ErrorBanner } from '@/components/status/ErrorBanner';
 import { StatusBar } from '@/components/status/StatusBar';
 
 type Props = {
@@ -26,8 +27,9 @@ export function AppShell({
   children,
 }: Props) {
   return (
-    <div className="grid grid-rows-[auto_auto_1fr_auto] h-screen overflow-hidden">
+    <div className="grid grid-rows-[auto_auto_auto_1fr_auto] h-screen overflow-hidden">
       <HudTopBar wsRtt={wsRtt} />
+      <ErrorBanner />
       <AppHeader
         projectsCount={projectsCount}
         tasksCount={tasksCount}

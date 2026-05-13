@@ -29,6 +29,10 @@ vi.mock('@/components/status/StatusBar', () => ({
   StatusBar: () => <div data-testid="mock-status-bar" />,
 }));
 
+vi.mock('@/components/status/ErrorBanner', () => ({
+  ErrorBanner: () => <div data-testid="mock-error-banner" />,
+}));
+
 const defaultProps = {
   projectsCount: 3,
   tasksCount: 10,
@@ -79,5 +83,10 @@ describe('AppShell', () => {
   it('renders null wsRtt as fallback text in HudTopBar', () => {
     render(<AppShell {...defaultProps} wsRtt={null}>content</AppShell>);
     expect(screen.getByTestId('mock-hud-top-bar')).toHaveTextContent('null');
+  });
+
+  it('renders ErrorBanner between HudTopBar and AppHeader', () => {
+    render(<AppShell {...defaultProps}>content</AppShell>);
+    expect(screen.getByTestId('mock-error-banner')).toBeInTheDocument();
   });
 });
