@@ -15,3 +15,10 @@ var WorktreeNotOrphanError = errors.New("worktree belongs to active task; use ta
 // task that already has them. Callers should use the existing set or call
 // CleanupForTask first.
 var ErrTaskAlreadyHasWorktrees = errors.New("task already has worktrees; reuse or cleanup first")
+
+// Session-related sentinels (F10.4).
+var (
+	ErrTaskInTerminalState         = errors.New("task is in terminal state; cannot start session")
+	ErrTaskAlreadyHasActiveSession = errors.New("task already has an active session")
+	ErrSandboxUnavailable          = errors.New("sandbox runtime unavailable (ai-jail or terminal missing)")
+)
