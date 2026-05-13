@@ -229,3 +229,68 @@ func TestDeleteOrphan_AlreadyGone_IsIdempotent(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func TestCreateForTask_Monorepo(t *testing.T) {
+	db, projectID, repos, fake, _, svc := setupSyncFixture(t)
+	tasksRepo := store.NewTasksRepo(db)
+	tk, err := tasksRepo.Create(context.Background(), store.CreateTaskInput{
+		ProjectID: projectID, Title: "implement-X",
+	})
+	if err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	wts, err := svc.CreateForTask(context.Background(), tk.ID, "feat/x")
+	if err != nil {
+		t.Fatalf("CreateForTask: %v", err)
+	}
+	if len(wts) != 1 {
+		t.Fatalf("want 1 worktree (monorepo), got %d", len(wts))
+	}
+	if wts[0].RepositoryID != repos[0].ID {
+		t.Errorf("repo: got %s, want %s", wts[0].RepositoryID, repos[0].ID)
+	}
+
+	addCount := 0
+	for _, c := range fake.Calls {
+		if c.Op == "add" {
+			addCount++
+		}
+	}
+	if addCount != 1 {
+		t.Errorf("want 1 git-add call, got %d", addCount)
+	}
+}
+
+func TestCreateForTask_RejectsIfTaskHasWorktrees(t *testing.T) {
+	db, projectID, repos, _, _, svc := setupSyncFixture(t)
+	tasksRepo := store.NewTasksRepo(db)
+	tk, _ := tasksRepo.Create(context.Background(), store.CreateTaskInput{
+		ProjectID: projectID, Title: "x",
+	})
+	wtRepo := store.NewWorktreesRepo(db)
+	tid := tk.ID
+	_, _ = wtRepo.Upsert(context.Background(), store.WorktreeUpsert{
+		RepositoryID: repos[0].ID, Path: "/tmp/wt-x", TaskID: &tid,
+	})
+	_, err := svc.CreateForTask(context.Background(), tk.ID, "feat/x")
+	if !errors.Is(err, ErrTaskAlreadyHasWorktrees) {
+		t.Errorf("want ErrTaskAlreadyHasWorktrees, got %v", err)
+	}
+}
+
+func TestBranchSlug(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"feat/new-thing", "feat-new-thing"},
+		{"main", "main"},
+		{"x y z", "x-y-z"},
+		{"feat/foo/bar", "feat-foo-bar"},
+	}
+	for _, tc := range tests {
+		if got := branchSlug(tc.in); got != tc.want {
+			t.Errorf("branchSlug(%q): got %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

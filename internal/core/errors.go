@@ -10,3 +10,8 @@ var ProjectHasTasksError = errors.New("project has tasks; discard them before de
 // WorktreeNotOrphanError is returned by WorktreesService.DeleteOrphan when
 // the target worktree still has a task_id set. Maps to HTTP 422.
 var WorktreeNotOrphanError = errors.New("worktree belongs to active task; use task cleanup flow instead")
+
+// ErrTaskAlreadyHasWorktrees: CreateForTask refuses to add worktrees to a
+// task that already has them. Callers should use the existing set or call
+// CleanupForTask first.
+var ErrTaskAlreadyHasWorktrees = errors.New("task already has worktrees; reuse or cleanup first")

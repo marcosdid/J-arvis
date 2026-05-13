@@ -69,6 +69,28 @@ func (r *ProjectsRepo) repositoriesFor(ctx context.Context, projectID string) ([
 	return r.repos.ListByProject(ctx, projectID)
 }
 
+// GetProjectForTask resolves task → project via a single JOIN.
+func (r *ProjectsRepo) GetProjectForTask(ctx context.Context, taskID string) (*Project, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT p.id, p.name, p.path, p.created_at
+		FROM projects p
+		JOIN tasks t ON t.project_id = p.id
+		WHERE t.id = ?`, taskID)
+	var p Project
+	if err := row.Scan(&p.ID, &p.Name, &p.Path, &p.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrProjectNotFound
+		}
+		return nil, err
+	}
+	repos, err := r.repositoriesFor(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	p.Repositories = repos
+	return &p, nil
+}
+
 func (r *ProjectsRepo) Get(ctx context.Context, id string) (*Project, error) {
 	var p Project
 	err := r.db.QueryRowContext(ctx,
