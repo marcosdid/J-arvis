@@ -74,12 +74,19 @@ export function installE2EShim(): void {
     Snapshot: () => Promise.resolve({ appVersion: '0.10.0-e2e', uptime: 0 }),
   } as unknown as Record<string, AnyFn>;
 
+  const worktreesAPI = {
+    ListByProject: (projectId: string) =>
+      postJson(`${base}/e2e/worktrees/list_by_project`, { project_id: projectId }),
+    Delete: (id: string) => postJson(`${base}/e2e/worktrees/delete`, { id }),
+  } as unknown as Record<string, AnyFn>;
+
   window.go = {
     api: {
       TasksAPI: tasksAPI,
       ProjectsAPI: projectsAPI,
       MasterAPI: masterAPI,
       HealthAPI: healthAPI,
+      WorktreesAPI: worktreesAPI,
     },
   };
 

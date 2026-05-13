@@ -4,6 +4,7 @@
 
 import * as TasksBinding from '../wailsjs/go/api/TasksAPI';
 import * as ProjectsBinding from '../wailsjs/go/api/ProjectsAPI';
+import * as WorktreesBinding from '../wailsjs/go/api/WorktreesAPI';
 
 export type Repository = {
   id: string;
@@ -211,8 +212,21 @@ export const api = {
 
   // Stubs — F10 Block A; real impls in F10.3+. Return neutral values to
   // avoid retry storms in React Query.
-  listWorktrees: (_projectId: string): Promise<Worktree[]> => emptyList<Worktree>(),
-  deleteWorktree: (_id: string): Promise<void> => noop(),
+  listWorktrees: async (projectId: string): Promise<Worktree[]> => {
+    const rows = await WorktreesBinding.ListByProject(projectId);
+    return (rows ?? []).map(
+      (w: any): Worktree => ({
+        id: w.id,
+        repository_id: w.repository_id,
+        repository_name: w.repository_name,
+        task_id: w.task_id ?? null,
+        path: w.path,
+        branch: w.branch ?? null,
+        is_orphan: w.is_orphan,
+      }),
+    );
+  },
+  deleteWorktree: (id: string): Promise<void> => WorktreesBinding.Delete(id).then(() => undefined),
   listSessions: (): Promise<Session[]> => emptyList<Session>(),
   startSession: (_worktreeId: string): Promise<Session> => notFound<Session>(),
   stopSession: (_id: string): Promise<void> => noop(),
