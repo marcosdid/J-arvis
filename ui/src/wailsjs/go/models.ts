@@ -66,10 +66,34 @@ export namespace api {
 	        this.branch = source["branch"];
 	    }
 	}
+	export class WorktreeRead {
+	    id: string;
+	    repository_id: string;
+	    repository_name: string;
+	    task_id?: string;
+	    path: string;
+	    branch?: string;
+	    is_orphan: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorktreeRead(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.repository_id = source["repository_id"];
+	        this.repository_name = source["repository_name"];
+	        this.task_id = source["task_id"];
+	        this.path = source["path"];
+	        this.branch = source["branch"];
+	        this.is_orphan = source["is_orphan"];
+	    }
+	}
 
 }
 
-export namespace store {
+export namespace core {
 	
 	export class CreateProjectInput {
 	    name: string;
@@ -85,6 +109,11 @@ export namespace store {
 	        this.path = source["path"];
 	    }
 	}
+
+}
+
+export namespace store {
+	
 	export class Repository {
 	    id: string;
 	    name: string;

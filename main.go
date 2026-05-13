@@ -9,7 +9,9 @@ import (
 	"sync/atomic"
 
 	"github.com/marcosdid/jarvis/internal/api"
+	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/events"
+	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/store"
 
 	"github.com/wailsapp/wails/v2"
@@ -58,12 +60,19 @@ func main() {
 
 	tasksRepo := store.NewTasksRepo(db)
 	projectsRepo := store.NewProjectsRepo(db)
+	repositoriesRepo := store.NewRepositoriesRepo(db)
+	worktreesRepo := store.NewWorktreesRepo(db)
 
-	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, nil)
-	projectsAPI := api.NewProjectsAPI(projectsRepo, lazyBus)
+	gitOps := jgit.NewSubprocessOps()
+	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
+	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, gitOps, lazyBus)
+
+	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, worktreesSvc.CleanupForTask)
+	projectsAPI := api.NewProjectsAPI(projectsSvc)
+	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
 
-	startE2EServer(tasksAPI, projectsAPI, masterAPI)
+	startE2EServer(tasksAPI, projectsAPI, worktreesAPI, masterAPI)
 
 	wailsErr := wails.Run(&options.App{
 		Title:  "J-arvis",
@@ -84,6 +93,7 @@ func main() {
 			tasksAPI,
 			projectsAPI,
 			masterAPI,
+			worktreesAPI,
 		},
 	})
 	if wailsErr != nil {

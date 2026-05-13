@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/marcosdid/jarvis/internal/store"
+	"github.com/marcosdid/jarvis/internal/core"
 )
 
 // E2EServer exposes the Wails-bound APIs over HTTP so Playwright can
@@ -17,15 +17,16 @@ import (
 // `e2e_http`. Listens on 127.0.0.1:0 (ephemeral) and prints the port
 // to stdout as `E2E_HTTP_PORT=<n>` so harnesses can scrape it.
 type E2EServer struct {
-	tasks    *TasksAPI
-	projects *ProjectsAPI
-	master   *MasterAPI
-	mu       sync.Mutex
-	listener net.Listener
+	tasks     *TasksAPI
+	projects  *ProjectsAPI
+	worktrees *WorktreesAPI
+	master    *MasterAPI
+	mu        sync.Mutex
+	listener  net.Listener
 }
 
-func NewE2EServer(tasks *TasksAPI, projects *ProjectsAPI, master *MasterAPI) *E2EServer {
-	return &E2EServer{tasks: tasks, projects: projects, master: master}
+func NewE2EServer(tasks *TasksAPI, projects *ProjectsAPI, worktrees *WorktreesAPI, master *MasterAPI) *E2EServer {
+	return &E2EServer{tasks: tasks, projects: projects, worktrees: worktrees, master: master}
 }
 
 func (s *E2EServer) Start() (int, error) {
@@ -144,7 +145,7 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 		writeJSON(w, out)
 	})
 	mux.HandleFunc("POST /e2e/projects/create", func(w http.ResponseWriter, r *http.Request) {
-		var req store.CreateProjectInput
+		var req core.CreateProjectInput
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		out, err := s.projects.Create(req)
 		if err != nil {

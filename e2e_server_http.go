@@ -8,8 +8,8 @@ import (
 	"github.com/marcosdid/jarvis/internal/api"
 )
 
-func startE2EServer(tasks *api.TasksAPI, projects *api.ProjectsAPI, master *api.MasterAPI) {
-	srv := api.NewE2EServer(tasks, projects, master)
+func startE2EServer(tasks *api.TasksAPI, projects *api.ProjectsAPI, worktrees *api.WorktreesAPI, master *api.MasterAPI) {
+	srv := api.NewE2EServer(tasks, projects, worktrees, master)
 	if _, err := srv.Start(); err != nil {
 		log.Fatalf("e2e server: %v", err)
 	}

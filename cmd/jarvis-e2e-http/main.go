@@ -19,7 +19,9 @@ import (
 	"syscall"
 
 	"github.com/marcosdid/jarvis/internal/api"
+	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/events"
+	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/store"
 )
 
@@ -53,12 +55,19 @@ func main() {
 
 	tasksRepo := store.NewTasksRepo(db)
 	projectsRepo := store.NewProjectsRepo(db)
+	repositoriesRepo := store.NewRepositoriesRepo(db)
+	worktreesRepo := store.NewWorktreesRepo(db)
 
-	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, nil)
-	projectsAPI := api.NewProjectsAPI(projectsRepo, lazyBus)
+	gitOps := jgit.NewSubprocessOps()
+	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
+	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, gitOps, lazyBus)
+
+	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, worktreesSvc.CleanupForTask)
+	projectsAPI := api.NewProjectsAPI(projectsSvc)
+	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
 
-	srv := api.NewE2EServer(tasksAPI, projectsAPI, masterAPI)
+	srv := api.NewE2EServer(tasksAPI, projectsAPI, worktreesAPI, masterAPI)
 	if _, err := srv.Start(); err != nil {
 		log.Fatalf("e2e server start: %v", err)
 	}
