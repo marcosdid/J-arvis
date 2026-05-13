@@ -77,7 +77,7 @@ func (f *fakeTasksRepo) Discard(_ context.Context, id string) error {
 
 func TestTasksAPI_Create_EmitsEvent(t *testing.T) {
 	bus := &events.FakeEmitter{}
-	api := NewTasksAPI(newFakeRepo(), bus)
+	api := NewTasksAPI(newFakeRepo(), bus, nil)
 	got, err := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -93,7 +93,7 @@ func TestTasksAPI_Create_EmitsEvent(t *testing.T) {
 func TestTasksAPI_Patch_ValidTransitionEmits(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus)
+	api := NewTasksAPI(repo, bus, nil)
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 
 	newState := "ready"
@@ -112,7 +112,7 @@ func TestTasksAPI_Patch_ValidTransitionEmits(t *testing.T) {
 func TestTasksAPI_Patch_InvalidTransition(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus)
+	api := NewTasksAPI(repo, bus, nil)
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 
 	bad := "done"
@@ -125,7 +125,7 @@ func TestTasksAPI_Patch_InvalidTransition(t *testing.T) {
 func TestTasksAPI_Patch_SameState_NoEmit(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus)
+	api := NewTasksAPI(repo, bus, nil)
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	bus.Calls = nil
 
@@ -142,7 +142,7 @@ func TestTasksAPI_Patch_SameState_NoEmit(t *testing.T) {
 func TestTasksAPI_Discard_EmitsEvent(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus)
+	api := NewTasksAPI(repo, bus, nil)
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	bus.Calls = nil
 
@@ -156,7 +156,7 @@ func TestTasksAPI_Discard_EmitsEvent(t *testing.T) {
 
 func TestTasksAPI_List_FilterByProject(t *testing.T) {
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, &events.FakeEmitter{})
+	api := NewTasksAPI(repo, &events.FakeEmitter{}, nil)
 	_, _ = api.Create(CreateTaskInput{ProjectID: "a", Title: "x"})
 	_, _ = api.Create(CreateTaskInput{ProjectID: "b", Title: "y"})
 
@@ -166,5 +166,83 @@ func TestTasksAPI_List_FilterByProject(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ProjectID != "a" {
 		t.Errorf("expected 1 task from project a, got %+v", got)
+	}
+}
+
+func TestTasksAPI_Patch_TerminalCallsCleanup(t *testing.T) {
+	bus := &events.FakeEmitter{}
+	repo := newFakeRepo()
+	called := 0
+	cleanup := func(_ context.Context, _ string) error {
+		called++
+		return nil
+	}
+	api := NewTasksAPI(repo, bus, cleanup)
+	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
+	bus.Calls = nil
+
+	target := "done"
+	repo.items[created.ID].State = "review"
+	if _, err := api.Patch(created.ID, PatchTaskInput{State: &target}); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("expected cleanup called once on terminal Patch, got %d", called)
+	}
+}
+
+func TestTasksAPI_Patch_NonTerminalDoesNotCallCleanup(t *testing.T) {
+	bus := &events.FakeEmitter{}
+	repo := newFakeRepo()
+	called := 0
+	cleanup := func(_ context.Context, _ string) error { called++; return nil }
+	api := NewTasksAPI(repo, bus, cleanup)
+	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
+
+	target := "ready"
+	if _, err := api.Patch(created.ID, PatchTaskInput{State: &target}); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+	if called != 0 {
+		t.Errorf("cleanup should NOT be called on non-terminal Patch; was %d", called)
+	}
+}
+
+func TestTasksAPI_Discard_CallsCleanup(t *testing.T) {
+	bus := &events.FakeEmitter{}
+	repo := newFakeRepo()
+	called := 0
+	cleanup := func(_ context.Context, _ string) error { called++; return nil }
+	api := NewTasksAPI(repo, bus, cleanup)
+	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
+
+	if err := api.Discard(created.ID); err != nil {
+		t.Fatalf("Discard: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("expected cleanup called once on Discard, got %d", called)
+	}
+}
+
+func TestTasksAPI_Cleanup_ErrorDoesNotPropagate(t *testing.T) {
+	bus := &events.FakeEmitter{}
+	repo := newFakeRepo()
+	cleanup := func(_ context.Context, _ string) error {
+		return errors.New("simulated cleanup failure")
+	}
+	api := NewTasksAPI(repo, bus, cleanup)
+	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
+	if err := api.Discard(created.ID); err != nil {
+		t.Errorf("Discard should not propagate cleanup err, got %v", err)
+	}
+}
+
+func TestTasksAPI_NilCleanup_DoesNotPanic(t *testing.T) {
+	bus := &events.FakeEmitter{}
+	repo := newFakeRepo()
+	api := NewTasksAPI(repo, bus, nil)
+	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
+	if err := api.Discard(created.ID); err != nil {
+		t.Errorf("Discard with nil cleanup should not error: %v", err)
 	}
 }

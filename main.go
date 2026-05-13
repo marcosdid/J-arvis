@@ -59,7 +59,7 @@ func main() {
 	tasksRepo := store.NewTasksRepo(db)
 	projectsRepo := store.NewProjectsRepo(db)
 
-	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus)
+	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, nil)
 	projectsAPI := api.NewProjectsAPI(projectsRepo, lazyBus)
 	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
 

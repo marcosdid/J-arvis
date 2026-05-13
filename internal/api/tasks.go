@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/events"
@@ -17,13 +18,16 @@ type TasksRepo interface {
 	Discard(context.Context, string) error
 }
 
+type WorktreeCleanupFn func(ctx context.Context, taskID string) error
+
 type TasksAPI struct {
-	repo TasksRepo
-	bus  events.Emitter
+	repo            TasksRepo
+	bus             events.Emitter
+	worktreeCleanup WorktreeCleanupFn
 }
 
-func NewTasksAPI(repo TasksRepo, bus events.Emitter) *TasksAPI {
-	return &TasksAPI{repo: repo, bus: bus}
+func NewTasksAPI(repo TasksRepo, bus events.Emitter, cleanup WorktreeCleanupFn) *TasksAPI {
+	return &TasksAPI{repo: repo, bus: bus, worktreeCleanup: cleanup}
 }
 
 type CreateTaskInput struct {
@@ -72,7 +76,8 @@ func (a *TasksAPI) Create(in CreateTaskInput) (*store.Task, error) {
 }
 
 func (a *TasksAPI) Patch(id string, in PatchTaskInput) (*store.Task, error) {
-	current, err := a.repo.Get(context.Background(), id)
+	ctx := context.Background()
+	current, err := a.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -80,11 +85,14 @@ func (a *TasksAPI) Patch(id string, in PatchTaskInput) (*store.Task, error) {
 		if !core.IsValidTransition(current.State, *in.State) {
 			return nil, ErrInvalidTransition
 		}
-		updated, err := a.repo.UpdateState(context.Background(), id, *in.State)
+		updated, err := a.repo.UpdateState(ctx, id, *in.State)
 		if err != nil {
 			return nil, err
 		}
 		a.bus.Emit("task.updated", updated)
+		if core.IsTerminal(*in.State) {
+			a.runWorktreeCleanup(ctx, id)
+		}
 		return updated, nil
 	}
 	return current, nil
@@ -102,5 +110,15 @@ func (a *TasksAPI) Discard(id string) error {
 	} else {
 		a.bus.Emit("task.discarded", map[string]string{"id": id})
 	}
+	a.runWorktreeCleanup(ctx, id)
 	return nil
+}
+
+func (a *TasksAPI) runWorktreeCleanup(ctx context.Context, taskID string) {
+	if a.worktreeCleanup == nil {
+		return
+	}
+	if err := a.worktreeCleanup(ctx, taskID); err != nil {
+		log.Printf("worktree cleanup for task %s: %v", taskID, err)
+	}
 }
