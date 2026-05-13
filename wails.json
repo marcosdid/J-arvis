@@ -7,7 +7,7 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "frontend:dir": "ui",
-  "wailsjsdir": "./ui/src/wailsjs",
+  "wailsjsdir": "./ui/src",
   "author": {
     "name": "marcosdid"
   }
