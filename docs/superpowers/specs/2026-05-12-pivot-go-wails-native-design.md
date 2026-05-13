@@ -23,7 +23,7 @@ O escopo é **estrutural total**: substitui a stack de backend (Python → Go), 
 |---|---|---|
 | 1 | **Go + Wails v2/v3** substituem Python+Vite-served-by-browser. Binário Go único contém shell nativo + webkit2gtk WebView (carrega UI React do F9) + todo o domínio. | Wails é "Tauri pra Go": curva mais suave que Rust, ecosystem maduro pras necessidades do J-arvis (SQLite, subprocess, PTY, Docker, file watcher, D-Bus), binário 10-30MB. UI React do F9 sobrevive 100% sem retrabalho visual. |
 | 2 | **Monólito de processo** — sem sidecar Python, sem porta TCP pra UI, sem WebSocket pra UI. Tudo in-process. Front fala com Go via Wails bindings (function calls sync) + eventos via `runtime.EventsEmit/EventsOn`. | Atende motivações B (app de verdade), C (integração SO) e D (cerimônia desnecessária) da Q1 do brainstorming. Latência IPC vira zero (function call em vez de TCP+JSON). |
-| 3 | **HTTP server interno mínimo** em `127.0.0.1:<porta efêmera>` exclusivo pra hooks do Claude POSTarem de dentro do ai-jail. Porta descoberta no boot, escrita em `<worktree>/.claude/settings.json` antes do `ai-jail run`. | Hooks do Claude (ADR-0009) são HTTP-based; única superfície de rede que sobrevive. Porta efêmera + bind localhost-only + token UUID por sessão mantém isolamento. |
+| 3 | **HTTP server interno mínimo** em `127.0.0.1:<porta efêmera>` exclusivo pra hooks do Claude POSTarem de dentro do ai-jail. "Porta efêmera" = `net.Listen("tcp", "127.0.0.1:0")` então lê a porta atribuída pelo kernel; escrita em `<worktree>/.claude/settings.json` antes do `ai-jail run`. Token UUID por sessão gerado em `SessionsAPI.Start`, registrado em memória, revogado em `SessionsAPI.Stop` (paridade com a lógica Python atual descrita em ARCHITECTURE.md §4). | Hooks do Claude (ADR-0009) são HTTP-based; única superfície de rede que sobrevive. Porta efêmera + bind localhost-only + token por sessão mantém isolamento. |
 | 4 | **Hard cut migration** em `feat/f10-native-app`. Python coexiste no disco como referência durante o port; deletado em F10.8 (cleanup). Branches anteriores (`feat/f9-ui-redesign` → `main`) mantém a versão Python+Web funcional como fallback histórico. | Soft transition com flags `--transport=tcp|uds` duplicaria trabalho de teste por meses. Hard cut foca esforço, evita ambíguidade de "qual versão está rodando?". |
 | 5 | **UI React do F9 preservada visualmente sem mudanças.** Mudanças concentradas em 3 arquivos: `ui/src/lib/api.ts` (re-imports pra Wails bindings), `ui/src/lib/ws.ts → events.ts` (Wails events), `MasterSidebar.tsx` (PTY via Wails events). TanStack Query, dnd-kit, xterm.js, design tokens CIPHER, Tailwind v4 config — todos intactos. | Investimento massivo no F9 que acabou de mergear. Preservar significa que o port é "trocar transport" pra UI, não "redesenhar UI". |
 | 6 | **Close-to-tray lifecycle.** Fechar a janela esconde pro system tray, daemon segue rodando. Quit explícito (pelo tray menu) derruba tudo. | Master session F8 é persistente por design (`claude --resume`), Run instances F6 podem ter Docker rodando, sessões Claude dentro do ai-jail podem estar processando. Close acidental não deve matar trabalho em curso. Revisa ADR-0008. |
@@ -333,7 +333,7 @@ Hoje o `MasterFooter` mostra `rtt: 12ms`. Substituído por **`events/s`** (decis
 
 - Contador de eventos Wails disparados pelo backend no último segundo
 - Útil quando 3+ sessões estão ativas — vira indicador de carga
-- Calculado em Go via ring buffer de timestamps, exposto via `runtime.EventsEmit('hud.events_per_sec', n)` a cada 1s
+- Calculado em Go via ring buffer de timestamps em `internal/events/bus.go` (mesmo pacote que faz `EventsEmit` — bookkeeping local à origem), exposto via `runtime.EventsEmit('hud.events_per_sec', n)` a cada 1s
 
 ### 6.5. Dev workflow
 
@@ -353,7 +353,7 @@ Hoje o `MasterFooter` mostra `rtt: 12ms`. Substituído por **`events/s`** (decis
 |---|---|---|
 | System tray icon | Wails v3 systray (ou `getlantern/systray`) | Ícone fixo na bar do Ubuntu. Menu: "Mostrar janela", "Nova task...", "Quit". Tooltip live: `"3 sessões ativas, 1 awaiting"` |
 | Close = hide to tray | `OnBeforeClose` handler do Wails | Fechar janela esconde (daemon segue rodando). `Quit` pelo tray menu derruba tudo. |
-| Single-instance lock | Wails plugin ou D-Bus name registration | 2ª invocação do binário só foca a janela existente. |
+| Single-instance lock | **D-Bus name registration** (primário): `org.jarvis.App` via `godbus/dbus`; se o nome já está claimado, envia método "ShowWindow" pra instância existente e exit. Fallback: Wails plugin se D-Bus name claim falhar (cenário raro mas possível em headless/sessões D-Busless) | 2ª invocação do binário só foca a janela existente. |
 | Global shortcut `Super+J` | `golang.design/x/hotkey` | Mostra/foca janela de qualquer lugar do desktop. Configurável depois. |
 | Notificações ricas (com actions) | `godbus/dbus` direto em `org.freedesktop.Notifications` | Action buttons no toast. Click `[Focar]` → janela aparece + UI navega pra task. |
 | Drag pasta do Nautilus → criar projeto | HTML5 drop event + `OnFileDrop` do Wails | Soltar pasta na `ProjectsDrawer` chama `ProjectsAPI.Create(path)` direto. |
@@ -419,8 +419,8 @@ Cada sub-fase termina **demonstrável + verde** (ADR-0004 mantida). Python coexi
 | **F10.1 — Store + migrations** | (interno) `internal/store` lê/escreve SQLite, migrations goose convertidas das versões Alembic 0001-0006 | `modernc.org/sqlite`, `pressly/goose`, conexão + pragmas, repos básicos com tests | 1-2 sem |
 | **F10.2 — Tasks vertical slice** | Kanban funciona: criar task, mover entre colunas, descartar, eventos refletem em outros panels | Port `core/task` + `store/tasks` + `api/TasksAPI`. UI: reescrever `lib/api.ts` + `useSessionEvents`. WS events → `bus.Emit` | 2-3 sem |
 | **F10.3 — Projects + Worktrees** | Drawer "Projetos & Worktrees" funciona, multi-repo auto-detect (F5), worktree lifecycle | Port `core/project` + `core/worktree`. Git ops via `go-git/go-git` ou `os/exec` | 2-3 sem |
-| **F10.4 — Sandbox + Sessions + Hooks** | Botão "Nova sessão" spawn claude no ai-jail, status semântico via hooks vira eventos no kanban | Port `sandbox/` (ai-jail wrapper) + `core/session` + HTTP hook server interno + settings.json writer | 3-4 sem |
-| **F10.5 — Master session + Catalog + MCP** | Sidebar master funciona, MCP tools manipulam tasks, templates/perfis aplicam no spawn | Port `master/` (PTY mux com `creack/pty`) + `catalog/` (F7) + MCP server JSON-RPC | 3-4 sem |
+| **F10.4 — Sandbox + Sessions + Hooks** | Botão "Nova sessão" spawn claude no ai-jail, status semântico via hooks vira eventos no kanban | Port `sandbox/` (ai-jail wrapper) + `core/session` + HTTP hook server interno + settings.json writer + token-per-session generate/revoke lifecycle (paridade com ARCHITECTURE.md §4) | 3-4 sem ⚠️ alta variância (novo terreno; risco #1 e #7) |
+| **F10.5 — Master session + Catalog + MCP** | Sidebar master funciona, MCP tools manipulam tasks, templates/perfis aplicam no spawn | Port `master/` (PTY mux com `creack/pty`) + `catalog/` (F7) + MCP server JSON-RPC | 3-4 sem ⚠️ alta variância (MCP SDK Go incerto; risco #1) |
 | **F10.6 — Run from Panel** | ▶ Run sobe stack via Docker, chips de URL clicáveis, bootstrap por sessão Claude efêmera | Port `runtime/` com Docker CLI subprocess, manifest parser, port allocator, file watcher | 2-3 sem |
 | **F10.7 — OS integration** | Tray + close-to-hide + Super+J + notif com actions + drag pasta + single-instance | Seção 7 inteira | 1-2 sem |
 | **F10.8 — Cleanup + packaging** | `make build` produz `.deb`+`.AppImage`. Python e Alembic deletados. README+ARCHITECTURE atualizados. ADRs 0026-0032. | NFPM packaging, doc updates, hard delete dos arquivos Python | 1 sem |
@@ -494,7 +494,7 @@ Mesmo padrão de Protocol Python via interfaces. Zero deps de gomock/mockery.
 |---|---|
 | `internal/core/` | 100% (puro, sem I/O) |
 | `internal/store/` | 100% (SQLite temp file ou `:memory:`) |
-| `internal/sandbox/`, `internal/runtime/`, `internal/master/` | 100% via fakes na unit; integration cobre o real |
+| `internal/sandbox/`, `internal/runtime/`, `internal/master/` | 100% via fakes na unit; integration cobre o real. Padrão: `interface CmdRunner { Run(ctx, name string, args ...string) ([]byte, error) }` envolve `os/exec` — fake em unit retorna saídas determinísticas; impl real em integration. Espelha o pattern de `SessionRuntime` mostrado em §9.3 |
 | `internal/api/` | 100% (cascas finas — testa via fakes de core+store) |
 | `internal/hooks/` | 100% via `httptest` |
 | `internal/events/` | Exclusão justificada — wrapper de Wails runtime |
