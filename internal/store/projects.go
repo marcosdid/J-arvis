@@ -13,9 +13,10 @@ import (
 var ErrProjectNotFound = errors.New("project not found")
 
 type Repository struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	SubPath string `json:"sub_path"`
+	ID        string `json:"id"`
+	ProjectID string `json:"-"`
+	Name      string `json:"name"`
+	SubPath   string `json:"sub_path"`
 }
 
 type Project struct {

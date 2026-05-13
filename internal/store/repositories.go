@@ -28,7 +28,7 @@ func NewRepositoriesRepo(db *sql.DB) *RepositoriesRepo {
 // monorepo rows lead.
 func (r *RepositoriesRepo) ListByProject(ctx context.Context, projectID string) ([]Repository, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, sub_path FROM repositories WHERE project_id = ? ORDER BY sub_path ASC`,
+		`SELECT id, project_id, name, sub_path FROM repositories WHERE project_id = ? ORDER BY sub_path ASC`,
 		projectID,
 	)
 	if err != nil {
@@ -38,12 +38,22 @@ func (r *RepositoriesRepo) ListByProject(ctx context.Context, projectID string) 
 	out := []Repository{}
 	for rows.Next() {
 		var rp Repository
-		if err := rows.Scan(&rp.ID, &rp.Name, &rp.SubPath); err != nil {
+		if err := rows.Scan(&rp.ID, &rp.ProjectID, &rp.Name, &rp.SubPath); err != nil {
 			return nil, err
 		}
 		out = append(out, rp)
 	}
 	return out, rows.Err()
+}
+
+func (r *RepositoriesRepo) GetByID(ctx context.Context, id string) *Repository {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT id, project_id, name, sub_path FROM repositories WHERE id = ?`, id)
+	var rp Repository
+	if err := row.Scan(&rp.ID, &rp.ProjectID, &rp.Name, &rp.SubPath); err != nil {
+		return nil
+	}
+	return &rp
 }
 
 // CreateBulk inserts all specs in a single transaction. Returns the created
@@ -66,7 +76,7 @@ func (r *RepositoriesRepo) CreateBulk(ctx context.Context, projectID string, spe
 		if err != nil {
 			return nil, fmt.Errorf("insert repository (%s, %s): %w", s.Name, s.SubPath, err)
 		}
-		created = append(created, Repository{ID: id, Name: s.Name, SubPath: s.SubPath})
+		created = append(created, Repository{ID: id, ProjectID: projectID, Name: s.Name, SubPath: s.SubPath})
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
