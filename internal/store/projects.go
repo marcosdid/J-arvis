@@ -32,11 +32,12 @@ type CreateProjectInput struct {
 }
 
 type ProjectsRepo struct {
-	db *sql.DB
+	db    *sql.DB
+	repos *RepositoriesRepo
 }
 
 func NewProjectsRepo(db *sql.DB) *ProjectsRepo {
-	return &ProjectsRepo{db: db}
+	return &ProjectsRepo{db: db, repos: NewRepositoriesRepo(db)}
 }
 
 func (r *ProjectsRepo) List(ctx context.Context) ([]Project, error) {
@@ -64,21 +65,7 @@ func (r *ProjectsRepo) List(ctx context.Context) ([]Project, error) {
 }
 
 func (r *ProjectsRepo) repositoriesFor(ctx context.Context, projectID string) ([]Repository, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, sub_path FROM repositories WHERE project_id = ? ORDER BY name`, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Repository{}
-	for rows.Next() {
-		var rp Repository
-		if err := rows.Scan(&rp.ID, &rp.Name, &rp.SubPath); err != nil {
-			return nil, err
-		}
-		out = append(out, rp)
-	}
-	return out, rows.Err()
+	return r.repos.ListByProject(ctx, projectID)
 }
 
 func (r *ProjectsRepo) Get(ctx context.Context, id string) (*Project, error) {
