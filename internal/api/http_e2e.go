@@ -82,7 +82,9 @@ func writeErr(w http.ResponseWriter, status int, err error) {
 
 func (s *E2EServer) mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /e2e/tasks/list", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ ProjectIDs []string `json:"project_ids"` }
+		var req struct {
+			ProjectIDs []string `json:"project_ids"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		out, err := s.tasks.List(req.ProjectIDs)
 		if err != nil {
@@ -121,7 +123,9 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 		writeJSON(w, out)
 	})
 	mux.HandleFunc("POST /e2e/tasks/discard", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ ID string `json:"id"` }
+		var req struct {
+			ID string `json:"id"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if err := s.tasks.Discard(req.ID); err != nil {
 			writeErr(w, 500, err)
@@ -130,7 +134,9 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /e2e/tasks/get", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ ID string `json:"id"` }
+		var req struct {
+			ID string `json:"id"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		out, err := s.tasks.Get(req.ID)
 		if err != nil {
@@ -159,7 +165,9 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 		writeJSON(w, out)
 	})
 	mux.HandleFunc("POST /e2e/projects/delete", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ ID string `json:"id"` }
+		var req struct {
+			ID string `json:"id"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if err := s.projects.Delete(req.ID); err != nil {
 			writeErr(w, 500, err)
@@ -173,7 +181,9 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("POST /e2e/worktrees/list_by_project", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ ProjectID string `json:"project_id"` }
+		var req struct {
+			ProjectID string `json:"project_id"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		out, err := s.worktrees.ListByProject(req.ProjectID)
 		if err != nil {
@@ -183,7 +193,9 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 		writeJSON(w, out)
 	})
 	mux.HandleFunc("POST /e2e/worktrees/delete", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ ID string `json:"id"` }
+		var req struct {
+			ID string `json:"id"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if err := s.worktrees.Delete(req.ID); err != nil {
 			writeErr(w, 500, err)

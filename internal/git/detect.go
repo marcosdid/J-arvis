@@ -16,12 +16,12 @@ type RepoSpec struct {
 }
 
 // DetectRepos scans basePath for git repositories:
-//   1. If basePath/.git is a directory: return one RepoSpec{Name: filepath.Base(basePath), SubPath: "."}.
-//   2. Else, scan immediate children. Each child with child/.git as a
-//      directory (NOT a file gitlink — submodules are skipped) becomes
-//      a RepoSpec{Name: childName, SubPath: childName}. Returned sorted
-//      by name.
-//   3. Empty result: return ErrNoGitRepos.
+//  1. If basePath/.git is a directory: return one RepoSpec{Name: filepath.Base(basePath), SubPath: "."}.
+//  2. Else, scan immediate children. Each child with child/.git as a
+//     directory (NOT a file gitlink — submodules are skipped) becomes
+//     a RepoSpec{Name: childName, SubPath: childName}. Returned sorted
+//     by name.
+//  3. Empty result: return ErrNoGitRepos.
 func DetectRepos(basePath string) ([]RepoSpec, error) {
 	info, err := os.Stat(basePath)
 	if err != nil || !info.IsDir() {
