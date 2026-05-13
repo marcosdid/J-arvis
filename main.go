@@ -61,6 +61,7 @@ func main() {
 
 	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus)
 	projectsAPI := api.NewProjectsAPI(projectsRepo, lazyBus)
+	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
 
 	wailsErr := wails.Run(&options.App{
 		Title:  "J-arvis",
@@ -80,6 +81,7 @@ func main() {
 			health,
 			tasksAPI,
 			projectsAPI,
+			masterAPI,
 		},
 	})
 	if wailsErr != nil {

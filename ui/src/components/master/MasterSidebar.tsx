@@ -3,10 +3,11 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
-import { useWebSocketRTT } from '../../hooks/useWebSocketRTT';
 import { MasterHeader } from './MasterHeader';
 import { MasterFooter } from './MasterFooter';
 import { QuickCommands } from './QuickCommands';
+import * as MasterAPI from '../../wailsjs/go/api/MasterAPI';
+import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 type SystemMsg = { level: 'warn' | 'error'; message: string } | null;
@@ -16,12 +17,9 @@ const SESSION_ID = 'master_001';
 export function MasterSidebar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const [wsForRtt, setWsForRtt] = useState<WebSocket | null>(null);
   const [systemMsg, setSystemMsg] = useState<SystemMsg>(null);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
-
-  const rtt = useWebSocketRTT(wsForRtt);
+  const [pid, setPid] = useState<number | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -37,15 +35,15 @@ export function MasterSidebar() {
     term.loadAddon(fit);
     term.open(container);
 
-    // disposed flag: cleanup pode rodar enquanto o ResizeObserver/rAF ainda tem
-    // callbacks na fila. fit.fit() acessa viewport.dimensions — se o terminal
-    // já foi disposed, viewport é undefined → TypeError. Esse flag é a guarda.
     let disposed = false;
-
     const safeFit = (): void => {
       if (disposed) return;
       if (container.offsetWidth === 0) return;
       fit.fit();
+      const dims = (fit as unknown as { proposeDimensions?: () => { rows: number; cols: number } | undefined }).proposeDimensions?.();
+      if (dims) {
+        MasterAPI.Resize(dims.rows, dims.cols).catch(() => undefined);
+      }
     };
 
     requestAnimationFrame(safeFit);
@@ -56,62 +54,63 @@ export function MasterSidebar() {
       (window as unknown as { __masterTerm?: Terminal }).__masterTerm = term;
     }
 
-    const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${wsProto}://${window.location.host}/ws/master`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-    setWsForRtt(ws);
-
-    ws.onopen = () => setStatus('connected');
-    ws.onclose = () => {
-      setStatus('disconnected');
-      wsRef.current = null;
-      setWsForRtt(null);
-    };
-    ws.onerror = () => setStatus('error');
-
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'output') {
-          term.write(msg.data);
-        } else if (msg.type === 'system') {
-          const level = msg.level === 'warn' || msg.level === 'error' ? msg.level : 'error';
-          const message = typeof msg.message === 'string' ? msg.message : 'unknown system message';
-          setSystemMsg({ level, message });
-        }
-      } catch {
-        // ignore parse errors — server is the trusted source
-      }
-    };
-
-    term.onData((data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }));
+    EventsOn('master.output', (chunk: unknown) => {
+      if (typeof chunk === 'string') {
+        term.write(chunk);
       }
     });
-    term.onResize(({ rows, cols }: { rows: number; cols: number }) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', rows, cols }));
+    EventsOn('master.status', (s: unknown) => {
+      const obj = s as { running?: boolean; pid?: number };
+      if (obj?.running) {
+        setStatus('connected');
+        setPid(typeof obj.pid === 'number' ? obj.pid : null);
+      } else {
+        setStatus('disconnected');
+        setPid(null);
       }
+    });
+    EventsOn('master.exit', (payload: unknown) => {
+      const obj = payload as { error?: string };
+      if (obj?.error) {
+        setSystemMsg({ level: 'error', message: `claude exit: ${obj.error}` });
+      }
+      setStatus('disconnected');
+      setPid(null);
+    });
+
+    MasterAPI.Start()
+      .then((st) => {
+        setStatus(st.running ? 'connected' : 'disconnected');
+        setPid(st.running ? st.pid : null);
+        if (st.running) {
+          term.write('\x1b[2m-- claude session started --\x1b[0m\r\n');
+        }
+      })
+      .catch((err: unknown) => {
+        setStatus('error');
+        const msg = err instanceof Error ? err.message : String(err);
+        setSystemMsg({ level: 'error', message: `start failed: ${msg}` });
+        term.write(`\x1b[31m-- failed to start claude: ${msg} --\x1b[0m\r\n`);
+      });
+
+    term.onData((data: string) => {
+      MasterAPI.Send(data).catch(() => undefined);
     });
 
     return () => {
       disposed = true;
       resizeObserver.disconnect();
-      ws.close();
+      EventsOff('master.output');
+      EventsOff('master.status');
+      EventsOff('master.exit');
+      MasterAPI.Stop().catch(() => undefined);
       term.dispose();
       termRef.current = null;
-      wsRef.current = null;
-      setWsForRtt(null);
     };
   }, []);
 
   const handleInject = useCallback((command: string) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', data: command + '\n' }));
-    }
+    MasterAPI.Send(command + '\n').catch(() => undefined);
   }, []);
 
   const handleClear = useCallback(() => {
@@ -125,7 +124,7 @@ export function MasterSidebar() {
   return (
     <aside className="flex flex-col h-full bg-bg-void border-l border-border-subtle" aria-label="master-session">
       <MasterHeader
-        pid={null}
+        pid={pid}
         sessionId={SESSION_ID}
         status={status}
         onClear={handleClear}
@@ -142,8 +141,8 @@ export function MasterSidebar() {
       )}
       <div ref={containerRef} className="flex-1 overflow-hidden" />
       <MasterFooter
-        pid={null}
-        rtt={rtt}
+        pid={pid}
+        rtt={null}
         live={status === 'connected'}
       />
     </aside>

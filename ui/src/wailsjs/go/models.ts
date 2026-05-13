@@ -34,6 +34,20 @@ export namespace api {
 	        this.uptime = source["uptime"];
 	    }
 	}
+	export class MasterStatus {
+	    running: boolean;
+	    pid: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MasterStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.pid = source["pid"];
+	    }
+	}
 	export class PatchTaskInput {
 	    title?: string;
 	    description?: string;
