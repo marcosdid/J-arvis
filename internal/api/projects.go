@@ -3,43 +3,34 @@ package api
 import (
 	"context"
 
-	"github.com/marcosdid/jarvis/internal/events"
+	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/store"
 )
 
-type ProjectsRepo interface {
-	List(context.Context) ([]store.Project, error)
-	Get(context.Context, string) (*store.Project, error)
-	Create(context.Context, store.CreateProjectInput) (*store.Project, error)
-	Delete(context.Context, string) error
+// ProjectsService is the API-layer view of *core.ProjectsService. Defined
+// here so tests can fake it without importing core.
+type ProjectsService interface {
+	List(ctx context.Context) ([]store.Project, error)
+	Create(ctx context.Context, in core.CreateProjectInput) (*store.Project, error)
+	Delete(ctx context.Context, id string) error
 }
 
 type ProjectsAPI struct {
-	repo ProjectsRepo
-	bus  events.Emitter
+	svc ProjectsService
 }
 
-func NewProjectsAPI(repo ProjectsRepo, bus events.Emitter) *ProjectsAPI {
-	return &ProjectsAPI{repo: repo, bus: bus}
+func NewProjectsAPI(svc ProjectsService) *ProjectsAPI {
+	return &ProjectsAPI{svc: svc}
 }
 
 func (a *ProjectsAPI) List() ([]store.Project, error) {
-	return a.repo.List(context.Background())
+	return a.svc.List(context.Background())
 }
 
-func (a *ProjectsAPI) Create(in store.CreateProjectInput) (*store.Project, error) {
-	created, err := a.repo.Create(context.Background(), in)
-	if err != nil {
-		return nil, err
-	}
-	a.bus.Emit("project.created", created)
-	return created, nil
+func (a *ProjectsAPI) Create(in core.CreateProjectInput) (*store.Project, error) {
+	return a.svc.Create(context.Background(), in)
 }
 
 func (a *ProjectsAPI) Delete(id string) error {
-	if err := a.repo.Delete(context.Background(), id); err != nil {
-		return err
-	}
-	a.bus.Emit("project.deleted", map[string]string{"id": id})
-	return nil
+	return a.svc.Delete(context.Background(), id)
 }
