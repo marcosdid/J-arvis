@@ -46,6 +46,6 @@ test-results/
 
 # Build / cache
 dist/
-build/
+build/bin/
 *.log
 .superpowers/
