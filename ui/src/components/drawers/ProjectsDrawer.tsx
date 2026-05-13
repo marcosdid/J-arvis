@@ -3,7 +3,7 @@ import { type FormEvent, useState } from 'react';
 import { api } from '../../lib/api';
 import { queryKeys } from '../../lib/query-keys';
 import { ProjectNode } from '../ProjectNode';
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 type Props = { open: boolean; onClose: () => void };
 
@@ -23,6 +23,9 @@ export function ProjectsDrawer({ open, onClose }: Props) {
           <SheetTitle className="font-display text-text-emphasis tracking-[0.08em] uppercase text-sm">
             Projetos & Worktrees
           </SheetTitle>
+          <SheetDescription className="sr-only">
+            Lista de projetos cadastrados e formulário para criar novos worktrees.
+          </SheetDescription>
         </SheetHeader>
         <SheetClose asChild>
           <button onClick={onClose} aria-label="close-drawer" className="sr-only">✕</button>

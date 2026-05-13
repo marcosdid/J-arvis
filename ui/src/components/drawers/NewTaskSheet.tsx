@@ -3,7 +3,7 @@ import type { Project } from '../../lib/api';
 import { useCreateTask } from '../../hooks/useTaskMutations';
 import { useCatalog } from '../../hooks/useCatalog';
 import { InvalidBranchSlugError, slugifyForBranch } from '../../lib/slug';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 type Props = {
   open: boolean;
@@ -78,6 +78,9 @@ export function NewTaskSheet({ open, onClose, projects }: Props) {
       <SheetContent side="right" className="w-[480px] sm:max-w-[480px] bg-bg-surface border-l border-border-subtle">
         <SheetHeader>
           <SheetTitle className="font-display text-text-emphasis">new task</SheetTitle>
+          <SheetDescription className="sr-only">
+            Formulário para criar uma nova tarefa: projeto, título, descrição, branch e template.
+          </SheetDescription>
         </SheetHeader>
         <form onSubmit={onSubmit} aria-label="new-task" className="new-task-form mt-4 flex flex-col gap-3">
           <label className="flex flex-col gap-1 text-text-subtle text-xs">

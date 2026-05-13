@@ -24,6 +24,9 @@ export function MasterSidebar() {
   const rtt = useWebSocketRTT(wsForRtt);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
     const term = new Terminal({
       fontSize: 13,
       fontFamily: 'monospace',
@@ -32,10 +35,22 @@ export function MasterSidebar() {
     termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
-    if (containerRef.current) {
-      term.open(containerRef.current);
+    term.open(container);
+
+    // disposed flag: cleanup pode rodar enquanto o ResizeObserver/rAF ainda tem
+    // callbacks na fila. fit.fit() acessa viewport.dimensions — se o terminal
+    // já foi disposed, viewport é undefined → TypeError. Esse flag é a guarda.
+    let disposed = false;
+
+    const safeFit = (): void => {
+      if (disposed) return;
+      if (container.offsetWidth === 0) return;
       fit.fit();
-    }
+    };
+
+    requestAnimationFrame(safeFit);
+    const resizeObserver = new ResizeObserver(safeFit);
+    resizeObserver.observe(container);
 
     if (import.meta.env.MODE !== 'production') {
       (window as unknown as { __masterTerm?: Terminal }).__masterTerm = term;
@@ -82,6 +97,8 @@ export function MasterSidebar() {
     });
 
     return () => {
+      disposed = true;
+      resizeObserver.disconnect();
       ws.close();
       term.dispose();
       termRef.current = null;

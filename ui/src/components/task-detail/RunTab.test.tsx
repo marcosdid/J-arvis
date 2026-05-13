@@ -124,7 +124,7 @@ describe('RunTab', () => {
     const btn = await screen.findByRole('button', { name: /run-tab-start/ });
     fireEvent.click(btn);
     await waitFor(() =>
-      expect(screen.getByRole('dialog', { name: 'bootstrap-manifest-modal' })).toBeDefined(),
+      expect(screen.getByRole('dialog', { name: /Manifesto faltando/ })).toBeDefined(),
     );
   });
 });

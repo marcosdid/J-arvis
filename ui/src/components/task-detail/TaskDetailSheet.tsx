@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { queryKeys } from '../../lib/query-keys';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { OverviewTab } from './OverviewTab';
 import { SessionsTab } from './SessionsTab';
@@ -28,6 +28,9 @@ export function TaskDetailSheet({ taskId, onClose }: Props) {
           <SheetTitle className="font-display text-text-emphasis">
             {task.data?.title ?? 'Loading...'}
           </SheetTitle>
+          <SheetDescription className="sr-only">
+            Detalhes da tarefa: overview, sessions, run e logs.
+          </SheetDescription>
         </SheetHeader>
         {taskId && task.data && (
           <Tabs defaultValue="overview" className="mt-4">

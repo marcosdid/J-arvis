@@ -109,7 +109,7 @@ describe('RunStatus', () => {
     const btn = await screen.findByRole('button', { name: /run-start/ });
     fireEvent.click(btn);
     await waitFor(() =>
-      expect(screen.getByRole('dialog', { name: 'bootstrap-manifest-modal' })).toBeDefined(),
+      expect(screen.getByRole('dialog', { name: /Manifesto faltando/ })).toBeDefined(),
     );
   });
 
@@ -125,7 +125,7 @@ describe('RunStatus', () => {
     fireEvent.click(btn);
     await waitFor(() => expect(api.startRun).toHaveBeenCalled());
     expect(
-      screen.queryByRole('dialog', { name: 'bootstrap-manifest-modal' }),
+      screen.queryByRole('dialog', { name: /Manifesto faltando/ }),
     ).toBeNull();
   });
 

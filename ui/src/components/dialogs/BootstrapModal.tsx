@@ -34,7 +34,6 @@ export function BootstrapModal({ taskId, onClose }: Props) {
       <DialogContent
         className="bg-bg-surface border-border-subtle"
         aria-label="bootstrap-manifest-modal"
-        aria-labelledby=""
       >
         <DialogHeader>
           <DialogTitle className="font-display text-text-emphasis">
