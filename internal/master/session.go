@@ -3,7 +3,6 @@ package master
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"sync"
@@ -72,9 +71,8 @@ func (s *Session) readLoop() {
 			s.OnOutput(string(buf[:n]))
 		}
 		if err != nil {
-			if !errors.Is(err, io.EOF) && err != os.ErrClosed {
-				// EIO etc when pty closes — terminate read loop quietly.
-			}
+			// EIO/EOF/closed-pty all terminate the read loop quietly —
+			// the waitLoop is responsible for surfacing process exit.
 			return
 		}
 	}

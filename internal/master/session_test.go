@@ -72,7 +72,7 @@ func TestSession_StartTwice(t *testing.T) {
 	if err := s.Start("/bin/sh", nil); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer s.Stop()
+	defer func() { _ = s.Stop() }()
 	if err := s.Start("/bin/sh", nil); err == nil {
 		t.Error("expected error on double Start")
 	}
@@ -83,7 +83,7 @@ func TestSession_Resize(t *testing.T) {
 	if err := s.Start("/bin/sh", nil); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer s.Stop()
+	defer func() { _ = s.Stop() }()
 	if err := s.Resize(40, 120); err != nil {
 		t.Errorf("Resize: %v", err)
 	}
