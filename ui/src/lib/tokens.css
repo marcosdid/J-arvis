@@ -38,4 +38,7 @@
   /* Typography */
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
   --font-display: 'Space Grotesk', system-ui, sans-serif;
+
+  /* Focus ring (shadcn primitives consume --ring) */
+  --ring: #4ade80;
 }

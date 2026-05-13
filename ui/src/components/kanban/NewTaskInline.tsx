@@ -16,7 +16,7 @@ export function NewTaskInline({ columnState: _columnState, projectId }: Props) {
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="w-full text-left text-xs text-text-faint hover:text-accent-primary px-2 py-1 border border-dashed border-border-subtle rounded-sm hover:border-accent-primary"
+        className="w-full text-left text-xs text-text-faint hover:text-accent-primary px-2 py-1 border border-dashed border-border-subtle rounded-sm hover:border-accent-primary transition-colors duration-[180ms] ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/40"
       >
         + add task
       </button>
@@ -56,7 +56,7 @@ export function NewTaskInline({ columnState: _columnState, projectId }: Props) {
           }
         }}
         placeholder="task title (Enter to create)"
-        className="bg-bg-deep border border-border-subtle text-text-emphasis text-xs px-2 py-1 rounded-sm focus:outline-none focus:border-accent-primary"
+        className="bg-bg-deep border border-border-subtle text-text-emphasis text-xs px-2 py-1 rounded-sm transition-colors duration-[180ms] ease-out focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/40"
       />
     </form>
   );

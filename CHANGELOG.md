@@ -2,6 +2,50 @@
 
 All notable changes to J-arvis follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [F9 — 2026-05-12] UI redesign (CIPHER)
+
+UI vanilla substituída por Tailwind v4 + shadcn/ui com identidade "CIPHER v2" (operator cyberpunk dark-only). 419 testes verdes; 100% coverage mantido em `src/lib`, `src/hooks`, `src/stores` e backend.
+
+### Adicionado
+
+- **Design tokens** em `ui/src/lib/tokens.css` (CSS custom properties — bg/border/text scales, accents, semantic colors, fontes, --ring).
+- **Tailwind v4** com `@tailwindcss/vite` + `@config` directive + `@import "tw-animate-css"`.
+- **shadcn/ui** primitives (Button, Sheet, Dialog, Tabs, Tooltip, Badge, Input, Skeleton, Sonner, DropdownMenu).
+- **HUD top bar** (`HudTopBar` + `HudMetric`) com métricas live (CPU/MEM/RTT/uptime/alerts); `tone='hot'` magenta quando `active_alerts_count > 0`.
+- **AppHeader** com brand `j-arvis`, counts (proj·tsk·active) e shortcuts `/`/`P`/`R`/`N` via `useKeyboardShortcut`.
+- **StatusBar** tmux-style com segmentos state/ws/mcp/alerts (esquerda) + mode/profile/git/v (direita); estado WS via `useWsConnectionStore`.
+- **AppShell** grid `auto auto auto 1fr auto` montando HudTopBar → ErrorBanner → AppHeader → main → StatusBar.
+- **TaskDetailSheet** substitui `TaskDetailModal` — shadcn Sheet right com 4 tabs (Overview/Sessions/Run/Logs).
+- **MasterSidebar** refatorada com `MasterHeader` + `QuickCommands` (5 chips MCP) + `MasterFooter` (pty + pid + live + RTT).
+- **NewTaskInline** quick-add no footer de cada KanbanColumn.
+- **NewTaskSheet** (refatorado de `NewTaskForm`) aberto pelo `[N]` do AppHeader.
+- **Empty/loading/error states**: kanban empty `[no tasks yet]`, `TaskCardSkeleton`, `ErrorBanner` quando WS offline/reconnecting.
+- **8 card states** via pure helper `deriveCardState` + `data-card-state` no TaskCard.
+- **Backend novo**: `GET /api/health` (psutil) + handler WS `{type:"ping"}` → `{type:"pong"}` pra RTT.
+- **Hooks novos**: `useSystemHealth`, `useWebSocketRTT`, `useKeyboardShortcut`.
+- **Store novo**: `useWsConnectionStore` (zustand) alimentado por `connectWs(onStateChange)`.
+
+### Mudado
+
+- `Kanban` + `KanbanColumn` + `TaskCard` movidos pra `ui/src/components/kanban/` com CIPHER Tailwind classes.
+- `ProjectsDrawer` migrado pra shadcn `<Sheet side="left">` em `components/drawers/`.
+- `BootstrapModal` migrado pra shadcn `<Dialog>` em `components/dialogs/`.
+- `index.css` reescrito com scanlines overlay e `@keyframes cipher-blink/cipher-pulse`.
+
+### Deferido
+
+- **Palette refinement** (Phase 14): iteração visual com user no ambiente rodando — paleta atual é green-dominante.
+- **`pid` no MasterFooter**: requer mensagem `type:"pid"` do backend.
+- **RunPanel completo**, filter input logic (`/`), Cmd+K command palette: pós-F9.
+
+### ADRs
+
+- [0023](docs/adr/0023-tailwind-v4-shadcn-ui-stack.md) — Tailwind v4 + shadcn/ui (Radix)
+- [0024](docs/adr/0024-cipher-design-system.md) — CIPHER v2 design identity
+- [0025](docs/adr/0025-component-architecture-app-shell.md) — AppShell + folder-por-domínio
+
+---
+
 ## [0.1.0-mvp] — 2026-05-11
 
 **MVP completo** — F0 → F7 conforme ARCHITECTURE.md §11. 21 ADRs documentando todas as decisões arquiteturais.

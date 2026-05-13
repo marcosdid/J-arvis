@@ -18,7 +18,7 @@ export function StatusSeg({ label, value, tone = 'default' }: Props) {
   return (
     <span className="inline-flex gap-1 items-center" data-testid={`status-seg-${label}`}>
       <span className="text-text-subtle">{label}</span>
-      <span className={cn('font-semibold', toneClass[tone])}>{value}</span>
+      <span className={cn('font-semibold transition-colors duration-[180ms] ease-out', toneClass[tone])}>{value}</span>
     </span>
   );
 }

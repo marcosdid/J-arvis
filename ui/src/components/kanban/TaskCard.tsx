@@ -49,7 +49,7 @@ export function TaskCard({ task, projects, onClick }: Props) {
         transition,
       }}
       className={cn(
-        'bg-bg-elevated border border-border-subtle rounded-sm p-2 cursor-grab hover:border-border-mid transition-colors',
+        'bg-bg-elevated border border-border-subtle rounded-sm p-2 cursor-grab hover:border-border-mid transition-colors duration-[180ms] ease-out',
         'data-[card-state=awaiting]:border-accent-attn data-[card-state=awaiting]:shadow-[0_0_8px_rgba(255,16,240,0.4)]',
         'data-[card-state=running]:border-accent-primary',
         'data-[card-state=error]:border-sem-error data-[card-state=error]:bg-sem-error/5',
