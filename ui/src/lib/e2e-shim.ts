@@ -80,6 +80,14 @@ export function installE2EShim(): void {
     Delete: (id: string) => postJson(`${base}/e2e/worktrees/delete`, { id }),
   } as unknown as Record<string, AnyFn>;
 
+  const sessionsAPI = {
+    Start: (taskId: string) => postJson(`${base}/e2e/sessions/start`, { task_id: taskId }),
+    Stop: (id: string) => postJson(`${base}/e2e/sessions/stop`, { id }),
+    ListByTask: (taskId: string) =>
+      postJson(`${base}/e2e/sessions/list_by_task`, { task_id: taskId }),
+    GetTranscript: (id: string) => postJson(`${base}/e2e/sessions/transcript`, { id }),
+  } as unknown as Record<string, AnyFn>;
+
   window.go = {
     api: {
       TasksAPI: tasksAPI,
@@ -87,6 +95,7 @@ export function installE2EShim(): void {
       MasterAPI: masterAPI,
       HealthAPI: healthAPI,
       WorktreesAPI: worktreesAPI,
+      SessionsAPI: sessionsAPI,
     },
   };
 
