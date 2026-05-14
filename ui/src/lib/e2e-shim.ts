@@ -71,7 +71,13 @@ export function installE2EShim(): void {
   } as unknown as Record<string, AnyFn>;
 
   const healthAPI = {
-    Snapshot: () => Promise.resolve({ appVersion: '0.10.0-e2e', uptime: 0 }),
+    Snapshot: () =>
+      Promise.resolve({
+        appVersion: '0.10.0-e2e',
+        uptime: 0,
+        sandbox_available: true,
+        sandbox_reason: '',
+      }),
   } as unknown as Record<string, AnyFn>;
 
   const worktreesAPI = {

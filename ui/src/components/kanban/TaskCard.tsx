@@ -1,11 +1,18 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { Task, Project } from '../../lib/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { api, type Task, type Project } from '../../lib/api';
 import { projectColor } from '../../lib/projectColor';
+import { queryKeys } from '../../lib/query-keys';
 import { useCatalog } from '../../hooks/useCatalog';
 import { useRun } from '../../hooks/useRun';
+import { useSandboxHealth } from '../../hooks/useSandboxHealth';
+import { useSessions } from '../../hooks/useSessions';
 import { cn } from '../../lib/utils';
 import { RunStatus } from '../RunStatus';
+import { SessionPanel } from '../sessions/SessionPanel';
+import { SessionStatusChip } from '../sessions/SessionStatusChip';
 import { deriveCardState } from './taskCardState';
 
 type Props = {
@@ -40,6 +47,21 @@ export function TaskCard({ task, projects, onClick }: Props) {
     task.state === 'idea' || task.state === 'ready' ? task.state : null;
 
   const cardState = deriveCardState(task, runQ.data?.status ?? null);
+
+  const [panelOpen, setPanelOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const { data: sandbox } = useSandboxHealth();
+  const sandboxAvailable = sandbox?.sandbox_available ?? false;
+  const sandboxReason = sandbox?.sandbox_reason ?? '';
+  const { data: sessions = [] } = useSessions(task.id);
+  const activeSession = sessions.find((s) => s.ended_at == null);
+  const startMut = useMutation({
+    mutationFn: () => api.startSession(task.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionsForTask(task.id) });
+      setPanelOpen(true);
+    },
+  });
 
   return (
     <div
@@ -104,6 +126,38 @@ export function TaskCard({ task, projects, onClick }: Props) {
       {(task.state === 'in_progress' || task.state === 'review') && (
         <RunStatus taskId={task.id} />
       )}
+      <div className="mt-2">
+        {activeSession ? (
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setPanelOpen(true);
+            }}
+            className="text-xs flex items-center gap-2"
+            data-testid="task-session-open"
+          >
+            <SessionStatusChip session={activeSession} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              startMut.mutate();
+            }}
+            disabled={!sandboxAvailable || startMut.isPending}
+            title={!sandboxAvailable ? sandboxReason : ''}
+            className="text-xs underline disabled:opacity-50"
+            data-testid="task-session-start"
+          >
+            ▶ Iniciar sessão
+          </button>
+        )}
+      </div>
+      <SessionPanel taskId={task.id} open={panelOpen} onOpenChange={setPanelOpen} />
     </div>
   );
 }

@@ -17,7 +17,14 @@ vi.mock('../../lib/api', async () => {
   };
 });
 
-import { api, type Task, type Project, type Catalog } from '../../lib/api';
+// Session controls pull sandbox availability + the task's sessions. Mock the
+// hooks directly so each test controls those two inputs in isolation.
+vi.mock('../../hooks/useSandboxHealth', () => ({ useSandboxHealth: vi.fn() }));
+vi.mock('../../hooks/useSessions', () => ({ useSessions: vi.fn() }));
+
+import { api, type Task, type Project, type Catalog, type Session } from '../../lib/api';
+import { useSandboxHealth } from '../../hooks/useSandboxHealth';
+import { useSessions } from '../../hooks/useSessions';
 
 const emptyCatalog: Catalog = {
   version: '1',
@@ -26,8 +33,23 @@ const emptyCatalog: Catalog = {
   templates: [],
 };
 
+function makeSession(over: Partial<Session> = {}): Session {
+  return {
+    id: 'sess-1', task_id: 't1', status: 'executing', pid: 100,
+    cwd: '/tmp/wt', last_hook_at: null,
+    started_at: '2026-01-01T00:00:00Z', ended_at: null,
+    ...over,
+  };
+}
+
 beforeEach(() => {
   vi.mocked(api.getCatalog).mockResolvedValue(emptyCatalog);
+  vi.mocked(useSandboxHealth).mockReturnValue({
+    data: { sandbox_available: true, sandbox_reason: '' },
+  } as unknown as ReturnType<typeof useSandboxHealth>);
+  vi.mocked(useSessions).mockReturnValue({
+    data: [],
+  } as unknown as ReturnType<typeof useSessions>);
 });
 
 const baseTask: Task = {
@@ -173,6 +195,35 @@ describe('TaskCard', () => {
       const t: Task = { ...baseTask, state: 'error' };
       const { container } = wrap(<TaskCard task={t} projects={projects} />);
       expect(container.firstChild).toHaveAttribute('data-card-state', 'error');
+    });
+  });
+
+  describe('session controls', () => {
+    it('disables the start button when the sandbox is unavailable', () => {
+      vi.mocked(useSandboxHealth).mockReturnValue({
+        data: { sandbox_available: false, sandbox_reason: 'ai-jail não está no PATH' },
+      } as unknown as ReturnType<typeof useSandboxHealth>);
+      wrap(<TaskCard task={baseTask} projects={projects} />);
+      const btn = screen.getByTestId('task-session-start');
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveAttribute('title', 'ai-jail não está no PATH');
+    });
+
+    it('enables the start button when the sandbox is available and no session is active', () => {
+      wrap(<TaskCard task={baseTask} projects={projects} />);
+      const btn = screen.getByTestId('task-session-start');
+      expect(btn).toBeEnabled();
+      expect(btn).toHaveAttribute('title', '');
+    });
+
+    it('shows the status chip instead of the start button when a session is active', () => {
+      vi.mocked(useSessions).mockReturnValue({
+        data: [makeSession({ status: 'awaiting_response' })],
+      } as unknown as ReturnType<typeof useSessions>);
+      wrap(<TaskCard task={baseTask} projects={projects} />);
+      expect(screen.getByTestId('task-session-open')).toBeInTheDocument();
+      expect(screen.getByTestId('session-status-chip')).toBeInTheDocument();
+      expect(screen.queryByTestId('task-session-start')).toBeNull();
     });
   });
 });

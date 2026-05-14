@@ -1,13 +1,12 @@
 package api
 
 import (
-	"context"
 	"testing"
 )
 
 func TestHealthAPI_Snapshot_NilProbeDefaultsSandboxFalse(t *testing.T) {
 	h := NewHealthAPI(nil)
-	snap, err := h.Snapshot(context.Background())
+	snap, err := h.Snapshot()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -27,7 +26,7 @@ func TestHealthAPI_Snapshot_NilProbeDefaultsSandboxFalse(t *testing.T) {
 
 func TestHealthAPI_Snapshot_ProbeAvailable(t *testing.T) {
 	h := NewHealthAPI(func() (bool, string) { return true, "" })
-	snap, _ := h.Snapshot(context.Background())
+	snap, _ := h.Snapshot()
 	if !snap.SandboxAvailable {
 		t.Error("SandboxAvailable: got false, want true")
 	}
@@ -38,7 +37,7 @@ func TestHealthAPI_Snapshot_ProbeAvailable(t *testing.T) {
 
 func TestHealthAPI_Snapshot_ProbeUnavailableWithReason(t *testing.T) {
 	h := NewHealthAPI(func() (bool, string) { return false, "ai-jail not in PATH" })
-	snap, _ := h.Snapshot(context.Background())
+	snap, _ := h.Snapshot()
 	if snap.SandboxAvailable {
 		t.Error("SandboxAvailable: got true, want false")
 	}

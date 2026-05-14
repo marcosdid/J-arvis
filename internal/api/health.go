@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"time"
 )
 
@@ -24,7 +23,7 @@ func NewHealthAPI(probe SandboxProbe) *HealthAPI {
 	return &HealthAPI{startedAt: time.Now(), probe: probe}
 }
 
-func (h *HealthAPI) Snapshot(_ context.Context) (HealthSnapshot, error) {
+func (h *HealthAPI) Snapshot() (HealthSnapshot, error) {
 	avail, reason := false, ""
 	if h.probe != nil {
 		avail, reason = h.probe()
