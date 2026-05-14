@@ -5,6 +5,7 @@
 import * as TasksBinding from '../wailsjs/go/api/TasksAPI';
 import * as ProjectsBinding from '../wailsjs/go/api/ProjectsAPI';
 import * as WorktreesBinding from '../wailsjs/go/api/WorktreesAPI';
+import * as SessionsBinding from '../wailsjs/go/api/SessionsAPI';
 
 export type Repository = {
   id: string;
@@ -30,15 +31,25 @@ export type Worktree = {
   is_orphan: boolean;
 };
 
+export type SessionStatus = 'executing' | 'awaiting_response' | 'idle' | 'error' | 'done';
+
 export type Session = {
   id: string;
   task_id: string;
-  cwd: string;
-  status: string;
+  status: SessionStatus;
   pid: number | null;
-  jail_id: string | null;
+  cwd: string;
+  last_hook_at: string | null;
   started_at: string;
   ended_at: string | null;
+};
+
+export type TranscriptMessage = {
+  role: 'user' | 'assistant' | 'tool_use' | 'tool_result';
+  content: string;
+  tool_name: string | null;
+  timestamp: string;
+  source_file: string;
 };
 
 export type ServiceStatus = {
@@ -154,14 +165,24 @@ function toProject(p: StoreProjectShape): Project {
   };
 }
 
+function toSession(s: any): Session {
+  return {
+    id: s.id,
+    task_id: s.task_id,
+    status: s.status,
+    pid: s.pid ?? null,
+    cwd: s.cwd,
+    last_hook_at: s.last_hook_at != null ? String(s.last_hook_at) : null,
+    started_at: String(s.started_at ?? ''),
+    ended_at: s.ended_at != null ? String(s.ended_at) : null,
+  };
+}
+
 const Tasks = TasksBinding;
 const Projects = ProjectsBinding;
 
 // Stubs return safe-empty values rather than throwing — throwing cascades
 // into React Query retry storms that freeze the UI. Real impls land in F10.3+.
-function emptyList<T>(): Promise<T[]> {
-  return Promise.resolve([]);
-}
 function notFound<T>(): Promise<T> {
   // For "get one or 404" hooks: useRun, etc. They expect a thrown HTTP 404
   // to mean "no active run" (it gets translated to null by the hook).
@@ -227,9 +248,23 @@ export const api = {
     );
   },
   deleteWorktree: (id: string): Promise<void> => WorktreesBinding.Delete(id).then(() => undefined),
-  listSessions: (): Promise<Session[]> => emptyList<Session>(),
-  startSession: (_worktreeId: string): Promise<Session> => notFound<Session>(),
-  stopSession: (_id: string): Promise<void> => noop(),
+
+  // Sessions (F10.4)
+  startSession: (taskId: string): Promise<Session> =>
+    SessionsBinding.Start(taskId).then((s: any) => toSession(s)),
+  stopSession: (id: string): Promise<void> => SessionsBinding.Stop(id).then(() => undefined),
+  listSessions: (taskId: string): Promise<Session[]> =>
+    SessionsBinding.ListByTask(taskId).then((rows: any[]) => (rows ?? []).map(toSession)),
+  getTranscript: (sessionId: string): Promise<TranscriptMessage[]> =>
+    SessionsBinding.GetTranscript(sessionId).then((rows: any[]) =>
+      (rows ?? []).map((m: any) => ({
+        role: m.role,
+        content: m.content,
+        tool_name: m.tool_name ?? null,
+        timestamp: String(m.timestamp ?? ''),
+        source_file: m.source_file ?? '',
+      })),
+    ),
   startTaskSession: (_taskId: string): Promise<Session> => notFound<Session>(),
   startRun: (_taskId: string): Promise<Run> => notFound<Run>(),
   getActiveRun: (_taskId: string): Promise<Run> => notFound<Run>(),
