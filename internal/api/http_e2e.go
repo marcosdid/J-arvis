@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/marcosdid/jarvis/internal/core"
+	"github.com/marcosdid/jarvis/internal/hooks"
 )
 
 // E2EServer exposes the Wails-bound APIs over HTTP so Playwright can
@@ -26,6 +28,8 @@ type E2EServer struct {
 	worktrees *WorktreesAPI
 	sessions  *SessionsAPI
 	master    *MasterAPI
+	hookBase  string
+	tokenReg  *hooks.TokenRegistry
 	mu        sync.Mutex
 	listener  net.Listener
 }
@@ -33,6 +37,15 @@ type E2EServer struct {
 func NewE2EServer(tasks *TasksAPI, projects *ProjectsAPI, worktrees *WorktreesAPI, sessions *SessionsAPI, master *MasterAPI) *E2EServer {
 	return &E2EServer{tasks: tasks, projects: projects, worktrees: worktrees, sessions: sessions, master: master}
 }
+
+// SetHookBase tells the test harness where the hook server is so simulate_hook
+// can replay HTTP calls. Set from cmd/jarvis-e2e-http main after hookServer.Start().
+func (s *E2EServer) SetHookBase(base string) { s.hookBase = base }
+
+// SetTokenRegistry wires the in-memory hook-token registry so the
+// /e2e/sessions/__token debug route can resolve session_id → token.
+// E2E_HTTP build only; never exposed in production.
+func (s *E2EServer) SetTokenRegistry(reg *hooks.TokenRegistry) { s.tokenReg = reg }
 
 func (s *E2EServer) Start() (int, error) {
 	mux := http.NewServeMux()
@@ -246,6 +259,98 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("POST /e2e/sessions/start", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out, err := s.sessions.Start(req.TaskID)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, out)
+	})
+	mux.HandleFunc("POST /e2e/sessions/stop", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := s.sessions.Stop(req.ID); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /e2e/sessions/list_by_task", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out, err := s.sessions.ListByTask(req.TaskID)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, out)
+	})
+	mux.HandleFunc("POST /e2e/sessions/transcript", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out, err := s.sessions.GetTranscript(req.ID)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, out)
+	})
+	mux.HandleFunc("POST /e2e/sessions/simulate_hook", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Event   string         `json:"event"` // Notification|PreToolUse|Stop
+			Token   string         `json:"token"`
+			Payload map[string]any `json:"payload"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, 400, err)
+			return
+		}
+		if s.hookBase == "" {
+			writeErr(w, 500, fmt.Errorf("hook base URL not set on E2EServer"))
+			return
+		}
+		body, _ := json.Marshal(req.Payload)
+		url := s.hookBase + "/api/hooks/" + req.Event + "/" + req.Token
+		res, err := http.Post(url, "application/json", bytes.NewReader(body))
+		if err != nil {
+			writeErr(w, 502, err)
+			return
+		}
+		defer res.Body.Close()
+		// Write status before body: io.Copy would otherwise flush an implicit 200.
+		w.WriteHeader(res.StatusCode)
+		_, _ = io.Copy(w, res.Body)
+	})
+	mux.HandleFunc("POST /e2e/sessions/__token", func(w http.ResponseWriter, r *http.Request) {
+		// Debug-only: resolve a session_id to its in-memory hook token so
+		// Playwright can simulate hook callbacks. e2e_http build only.
+		if s.tokenReg == nil {
+			writeErr(w, 500, fmt.Errorf("token registry not wired on E2EServer"))
+			return
+		}
+		var req struct {
+			SessionID string `json:"session_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		tok := s.tokenReg.FindBySessionID(req.SessionID)
+		if tok == "" {
+			writeErr(w, 404, fmt.Errorf("no token registered for session %s", req.SessionID))
+			return
+		}
+		writeJSON(w, map[string]string{"token": tok})
 	})
 }
 

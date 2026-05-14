@@ -100,6 +100,11 @@ func main() {
 	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
 
 	srv := api.NewE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI)
+	// Wire the hook proxy + token reverse-lookup for /e2e/sessions/simulate_hook
+	// and /e2e/sessions/__token BEFORE Start: Start spawns the serving goroutine,
+	// so these writes must happen-before it to avoid a data race.
+	srv.SetHookBase(hookServer.BaseURL())
+	srv.SetTokenRegistry(tokenRegistry)
 	if _, err := srv.Start(); err != nil {
 		log.Fatalf("e2e server start: %v", err)
 	}
