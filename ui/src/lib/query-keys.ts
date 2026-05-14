@@ -2,6 +2,8 @@ export const queryKeys = {
   projects: ['projects'] as const,
   worktrees: (projectId: string) => ['worktrees', projectId] as const,
   sessions: ['sessions'] as const,
+  sessionsForTask: (taskId: string | null) => ['sessions', taskId] as const,
+  transcript: (sessionId: string | null) => ['transcript', sessionId] as const,
   tasks: ['tasks'] as const,
   tasksForProject: (projectId: string) => ['tasks', { projectId }] as const,
   task: (taskId: string) => ['tasks', { id: taskId }] as const,

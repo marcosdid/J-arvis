@@ -17,7 +17,8 @@ const EVENT_NAMES = [
   'task.created',
   'task.updated',
   'task.discarded',
-  'session.status',
+  'session.started',
+  'session.status_changed',
   'session.tool_use',
   'session.stopped',
   'worktree.created',
@@ -77,9 +78,44 @@ function adaptEvent(name: string, payload: AnyPayload): WsEvent | null {
         },
         at: toIso(p.updated_at),
       };
+    case 'session.started':
+      return {
+        type: 'session.started',
+        session_id: String(p.id ?? ''),
+        task_id: p.task_id != null ? String(p.task_id) : null,
+        payload: {},
+        at: toIso(p.started_at),
+      };
+    case 'session.status_changed':
+      return {
+        type: 'session.status_changed',
+        session_id: String(p.id ?? ''),
+        task_id: null,
+        payload: {
+          previous: String(p.previous ?? ''),
+          current: String(p.current ?? ''),
+        },
+        at: toIso(undefined),
+      };
+    case 'session.tool_use':
+      return {
+        type: 'session.tool_use',
+        session_id: String(p.id ?? ''),
+        task_id: null,
+        payload: { tool: String(p.tool ?? '') },
+        at: toIso(undefined),
+      };
+    case 'session.stopped':
+      return {
+        type: 'session.stopped',
+        session_id: String(p.id ?? ''),
+        task_id: p.task_id != null ? String(p.task_id) : null,
+        payload: {},
+        at: toIso(undefined),
+      };
     default:
-      // Other events (session.*, run.*, worktree.*, bootstrap.*) are not
-      // yet emitted by the Go backend — they will be in F10.3+.
+      // Other events (run.*, worktree.*, bootstrap.*) are not yet emitted
+      // by the Go backend — they will be in F10.5+.
       return null;
   }
 }

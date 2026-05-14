@@ -1,7 +1,11 @@
 export type WsEvent =
   | {
-      type: 'session.status'; session_id: string; task_id: string | null;
-      payload: { status: string; previous: string }; at: string;
+      type: 'session.started'; session_id: string; task_id: string | null;
+      payload: Record<string, never>; at: string;
+    }
+  | {
+      type: 'session.status_changed'; session_id: string; task_id: string | null;
+      payload: { previous: string; current: string }; at: string;
     }
   | {
       type: 'session.tool_use'; session_id: string; task_id: string | null;

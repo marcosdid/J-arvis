@@ -16,13 +16,22 @@ export function useSessionEvents(
     const setWsState = useWsConnectionStore.getState().setState;
     const conn = connectWs((event) => {
       dispatch(event, {
-        'session.status': () => {
+        'session.started': () => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+          queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+        },
+        'session.status_changed': () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
           queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
         },
         'session.stopped': () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
           queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+        },
+        'session.tool_use': (e) => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.transcript(e.session_id),
+          });
         },
         'task.created': () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.tasks });

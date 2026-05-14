@@ -15,22 +15,40 @@ vi.mock('../lib/ws', () => ({
 beforeEach(() => connectMock.mockReset());
 
 describe('useSessionEvents', () => {
-  it('invalidates sessions queries on session.status', () => {
+  it('invalidates sessions queries on session.status_changed', () => {
     const qc = new QueryClient();
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useSessionEvents(qc));
     const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
-    onEvent({ type: 'session.status', session_id: 'x', task_id: null, payload: { status: 'idle', previous: 'executing' }, at: '' });
+    onEvent({ type: 'session.status_changed', session_id: 'x', task_id: null, payload: { previous: 'executing', current: 'idle' }, at: '' });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions });
   });
 
-  it('invalidates tasks queries on session.status', () => {
+  it('invalidates tasks queries on session.status_changed', () => {
     const qc = new QueryClient();
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useSessionEvents(qc));
     const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
-    onEvent({ type: 'session.status', session_id: 'x', task_id: null, payload: { status: 'idle', previous: 'executing' }, at: '' });
+    onEvent({ type: 'session.status_changed', session_id: 'x', task_id: null, payload: { previous: 'executing', current: 'idle' }, at: '' });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tasks });
+  });
+
+  it('invalidates sessions queries on session.started', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({ type: 'session.started', session_id: 'x', task_id: 't1', payload: {}, at: '' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions });
+  });
+
+  it('invalidates transcript(session_id) on session.tool_use', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useSessionEvents(qc));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({ type: 'session.tool_use', session_id: 'sess-9', task_id: null, payload: { tool: 'Bash' }, at: '' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.transcript('sess-9') });
   });
 
   it('invalidates on session.stopped too', () => {
