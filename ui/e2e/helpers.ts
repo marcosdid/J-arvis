@@ -46,3 +46,33 @@ export async function gitWorktreeAdd(repoPath: string, targetPath: string, branc
   });
   if (!res.ok) throw new Error(`git worktree add failed: ${await res.text()}`);
 }
+
+export async function simulateHook(
+  token: string,
+  event: 'Notification' | 'PreToolUse' | 'Stop',
+  payload: unknown,
+): Promise<void> {
+  const port = e2ePort();
+  const res = await fetch(`http://127.0.0.1:${port}/e2e/sessions/simulate_hook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, token, payload }),
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`simulateHook failed: ${await res.text()}`);
+  }
+}
+
+// Resolves a session_id to its hook token via the /e2e/sessions/__token
+// debug endpoint (wired in F10.4.20).
+export async function getSessionToken(sessionId: string): Promise<string> {
+  const port = e2ePort();
+  const res = await fetch(`http://127.0.0.1:${port}/e2e/sessions/__token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+  if (!res.ok) throw new Error(`getSessionToken failed: ${await res.text()}`);
+  const { token } = await res.json();
+  return token;
+}
