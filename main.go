@@ -12,6 +12,8 @@ import (
 	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/events"
 	jgit "github.com/marcosdid/jarvis/internal/git"
+	"github.com/marcosdid/jarvis/internal/hooks"
+	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
 
 	"github.com/wailsapp/wails/v2"
@@ -48,8 +50,6 @@ func main() {
 	}
 
 	app := NewApp()
-	// F10.4.15 wires the real probe; placeholder defaults to false until then.
-	health := api.NewHealthAPI(nil)
 
 	var realBus atomic.Pointer[events.Emitter]
 	lazyBus := &events.LazyEmitter{Resolve: func() events.Emitter {
@@ -63,17 +63,53 @@ func main() {
 	projectsRepo := store.NewProjectsRepo(db)
 	repositoriesRepo := store.NewRepositoriesRepo(db)
 	worktreesRepo := store.NewWorktreesRepo(db)
+	sessionsRepo := store.NewSessionsRepo(db)
+
+	tokenRegistry := hooks.NewTokenRegistry()
+	hookUpdater := store.NewSessionsHookAdapter(sessionsRepo)
+	hookServer := hooks.NewServer(tokenRegistry, lazyBus, hookUpdater)
+
+	sandboxOK := true
+	var sandboxReason string
+	if port, err := hookServer.Start(); err != nil {
+		log.Printf("hook server bind failed: %v", err)
+		sandboxOK = false
+		sandboxReason = "hook server failed to bind: " + err.Error()
+	} else {
+		log.Printf("hook server listening on 127.0.0.1:%d", port)
+	}
+	if err := sandbox.SandboxAvailable(); err != nil {
+		sandboxOK = false
+		if sandboxReason == "" {
+			sandboxReason = sandbox.DiagnoseSandbox()
+		}
+	}
 
 	gitOps := jgit.NewSubprocessOps()
 	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
 	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, gitOps, lazyBus)
 
-	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, worktreesSvc.CleanupForTask, nil)
+	claudeHome := os.Getenv("JARVIS_CLAUDE_HOME")
+	if claudeHome == "" {
+		claudeHome = filepath.Join(os.Getenv("HOME"), ".claude")
+	}
+
+	runtime := sandbox.NewAijailRuntime()
+	sessionsSvc := core.NewSessionsService(
+		sessionsRepo, tasksRepo, worktreesRepo, projectsRepo, worktreesSvc,
+		runtime, tokenRegistry, hookServer, lazyBus, claudeHome,
+	)
+
+	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
+	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
 	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
+	healthAPI := api.NewHealthAPI(func() (bool, string) {
+		return sandboxOK, sandboxReason
+	})
 
-	startE2EServer(tasksAPI, projectsAPI, worktreesAPI, masterAPI)
+	startE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI)
 
 	wailsErr := wails.Run(&options.App{
 		Title:  "J-arvis",
@@ -88,16 +124,24 @@ func main() {
 			emitter := events.Emitter(events.NewWailsEmitter(c))
 			realBus.Store(&emitter)
 		},
+		OnShutdown: func(_ context.Context) {
+			if err := hookServer.Stop(); err != nil {
+				log.Printf("hook server shutdown: %v", err)
+			}
+		},
 		Bind: []any{
 			app,
-			health,
+			healthAPI,
 			tasksAPI,
 			projectsAPI,
 			masterAPI,
 			worktreesAPI,
+			sessionsAPI,
 		},
 	})
 	if wailsErr != nil {
+		// OnShutdown does not fire if Run fails before the window opens.
+		_ = hookServer.Stop()
 		log.Fatalf("wails.Run: %v", wailsErr)
 	}
 }

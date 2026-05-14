@@ -24,13 +24,14 @@ type E2EServer struct {
 	tasks     *TasksAPI
 	projects  *ProjectsAPI
 	worktrees *WorktreesAPI
+	sessions  *SessionsAPI
 	master    *MasterAPI
 	mu        sync.Mutex
 	listener  net.Listener
 }
 
-func NewE2EServer(tasks *TasksAPI, projects *ProjectsAPI, worktrees *WorktreesAPI, master *MasterAPI) *E2EServer {
-	return &E2EServer{tasks: tasks, projects: projects, worktrees: worktrees, master: master}
+func NewE2EServer(tasks *TasksAPI, projects *ProjectsAPI, worktrees *WorktreesAPI, sessions *SessionsAPI, master *MasterAPI) *E2EServer {
+	return &E2EServer{tasks: tasks, projects: projects, worktrees: worktrees, sessions: sessions, master: master}
 }
 
 func (s *E2EServer) Start() (int, error) {
