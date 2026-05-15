@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/marcosdid/jarvis/internal/api"
+	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/events"
 	jgit "github.com/marcosdid/jarvis/internal/git"
@@ -100,8 +101,10 @@ func main() {
 		runtime, tokenRegistry, hookServer, lazyBus, claudeHome,
 	)
 
-	tasksSvc := core.NewTasksService(tasksRepo, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
+	catalogRoot := catalog.MustLoad()
+	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
 	tasksAPI := api.NewTasksAPI(tasksSvc)
+	catalogAPI := api.NewCatalogAPI(catalogRoot)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
@@ -138,6 +141,7 @@ func main() {
 			masterAPI,
 			worktreesAPI,
 			sessionsAPI,
+			catalogAPI,
 		},
 	})
 	if wailsErr != nil {

@@ -23,6 +23,7 @@ import (
 	"syscall"
 
 	"github.com/marcosdid/jarvis/internal/api"
+	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/events"
 	jgit "github.com/marcosdid/jarvis/internal/git"
@@ -94,7 +95,8 @@ func main() {
 		rt, tokenRegistry, hookServer, lazyBus, claudeHome,
 	)
 
-	tasksSvc := core.NewTasksService(tasksRepo, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
+	catalogRoot := catalog.MustLoad()
+	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
 	tasksAPI := api.NewTasksAPI(tasksSvc)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)

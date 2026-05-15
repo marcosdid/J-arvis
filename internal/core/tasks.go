@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 
+	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/events"
 	"github.com/marcosdid/jarvis/internal/store"
 )
@@ -39,18 +40,20 @@ type PatchTaskInput struct {
 
 type TasksService struct {
 	repo            TasksRepoInterface
+	catalog         *catalog.Catalog
 	bus             events.Emitter
 	worktreeCleanup TasksWorktreeCleanupFn
 	sessionCleanup  TasksSessionCleanupFn
 }
 
 func NewTasksService(
-	repo TasksRepoInterface, bus events.Emitter,
+	repo TasksRepoInterface, cat *catalog.Catalog, bus events.Emitter,
 	worktreeCleanup TasksWorktreeCleanupFn,
 	sessionCleanup TasksSessionCleanupFn,
 ) *TasksService {
 	return &TasksService{
 		repo:            repo,
+		catalog:         cat,
 		bus:             bus,
 		worktreeCleanup: worktreeCleanup,
 		sessionCleanup:  sessionCleanup,
@@ -66,13 +69,23 @@ func (s *TasksService) Get(ctx context.Context, id string) (*store.Task, error) 
 }
 
 func (s *TasksService) Create(ctx context.Context, in CreateTaskInput) (*store.Task, error) {
+	tmpl := ""
+	if in.Template != nil {
+		tmpl = *in.Template
+	}
+	resolved, err := s.catalog.Resolve(tmpl)
+	if err != nil {
+		return nil, err // wraps catalog.ErrTemplateUnknown
+	}
+	profile := resolved.ProfileName
 	created, err := s.repo.Create(ctx, store.CreateTaskInput{
-		ProjectID:   in.ProjectID,
-		Title:       in.Title,
-		Description: in.Description,
-		State:       "idea",
-		Branch:      in.Branch,
-		Template:    in.Template,
+		ProjectID:         in.ProjectID,
+		Title:             in.Title,
+		Description:       in.Description,
+		State:             "idea",
+		Branch:            in.Branch,
+		Template:          in.Template,
+		PermissionProfile: &profile,
 	})
 	if err != nil {
 		return nil, err
