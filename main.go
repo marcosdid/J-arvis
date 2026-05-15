@@ -100,7 +100,8 @@ func main() {
 		runtime, tokenRegistry, hookServer, lazyBus, claudeHome,
 	)
 
-	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
+	tasksSvc := core.NewTasksService(tasksRepo, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
+	tasksAPI := api.NewTasksAPI(tasksSvc)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
