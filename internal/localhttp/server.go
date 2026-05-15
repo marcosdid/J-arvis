@@ -5,6 +5,7 @@
 package localhttp
 
 import (
+	"errors"
 	"net/http"
 	"sync"
 )
@@ -23,4 +24,16 @@ func (s *Server) Started() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.started
+}
+
+var ErrAlreadyStarted = errors.New("localhttp: already started")
+
+func (s *Server) Mount(pattern string, h http.Handler) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return ErrAlreadyStarted
+	}
+	s.mux.Handle(pattern, h)
+	return nil
 }

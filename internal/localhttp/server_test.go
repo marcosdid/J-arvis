@@ -1,6 +1,9 @@
 package localhttp
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+)
 
 func TestNewReturnsUnstartedServer(t *testing.T) {
 	s := New()
@@ -9,5 +12,15 @@ func TestNewReturnsUnstartedServer(t *testing.T) {
 	}
 	if s.Started() {
 		t.Errorf("Started()=true on fresh Server, want false")
+	}
+}
+
+func TestMountBeforeStartSucceeds(t *testing.T) {
+	s := New()
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	if err := s.Mount("/foo", h); err != nil {
+		t.Fatalf("Mount: %v", err)
 	}
 }
