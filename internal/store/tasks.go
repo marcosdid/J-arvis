@@ -150,6 +150,47 @@ func (r *TasksRepo) UpdateState(ctx context.Context, id, state string) (*Task, e
 	return r.Get(ctx, id)
 }
 
+// UpdateFields updates title, description, and/or branch fields (not state).
+// Any nil pointer means that field is not updated.
+func (r *TasksRepo) UpdateFields(ctx context.Context, id string, title *string, description *string, branch *string) (*Task, error) {
+	// Build dynamic UPDATE statement for non-nil fields
+	updates := []string{}
+	args := []any{}
+
+	if title != nil {
+		updates = append(updates, "title = ?")
+		args = append(args, *title)
+	}
+	if description != nil {
+		updates = append(updates, "description = ?")
+		args = append(args, *description)
+	}
+	if branch != nil {
+		updates = append(updates, "branch = ?")
+		args = append(args, *branch)
+	}
+
+	if len(updates) == 0 {
+		// No fields to update, just return the current task
+		return r.Get(ctx, id)
+	}
+
+	updates = append(updates, "updated_at = ?")
+	args = append(args, time.Now().UTC())
+	args = append(args, id)
+
+	query := `UPDATE tasks SET ` + strings.Join(updates, ", ") + ` WHERE id = ?`
+	res, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("update fields: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, ErrTaskNotFound
+	}
+	return r.Get(ctx, id)
+}
+
 func (r *TasksRepo) Discard(ctx context.Context, id string) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE tasks SET state = 'discarded', updated_at = ? WHERE id = ?`,

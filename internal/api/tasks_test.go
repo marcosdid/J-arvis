@@ -79,6 +79,24 @@ func (f *fakeTasksRepo) UpdateState(_ context.Context, id, state string) (*store
 	return t, nil
 }
 
+func (f *fakeTasksRepo) UpdateFields(_ context.Context, id string, title *string, description *string, branch *string) (*store.Task, error) {
+	t, ok := f.items[id]
+	if !ok {
+		return nil, store.ErrTaskNotFound
+	}
+	if title != nil {
+		t.Title = *title
+	}
+	if description != nil {
+		t.Description = *description
+	}
+	if branch != nil {
+		t.Branch = branch
+	}
+	t.UpdatedAt = time.Now()
+	return t, nil
+}
+
 func (f *fakeTasksRepo) Discard(_ context.Context, id string) error {
 	t, ok := f.items[id]
 	if !ok {

@@ -17,6 +17,7 @@ type TasksRepoInterface interface {
 	Get(context.Context, string) (*store.Task, error)
 	Create(context.Context, store.CreateTaskInput) (*store.Task, error)
 	UpdateState(context.Context, string, string) (*store.Task, error)
+	UpdateFields(context.Context, string, *string, *string, *string) (*store.Task, error)
 	Discard(context.Context, string) error
 }
 
@@ -99,25 +100,44 @@ func (s *TasksService) Patch(ctx context.Context, id string, in PatchTaskInput) 
 	if err != nil {
 		return nil, err
 	}
-	if in.State == nil || *in.State == current.State {
-		return current, nil
+
+	// Update non-state fields if provided
+	if in.Title != nil || in.Description != nil || in.Branch != nil {
+		_, err := s.repo.UpdateFields(ctx, id, in.Title, in.Description, in.Branch)
+		if err != nil {
+			return nil, err
+		}
+		// Refresh current to get updated non-state fields
+		current, err = s.repo.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if !IsValidTransition(current.State, *in.State) {
-		return nil, ErrInvalidTransition
+
+	// Handle state transition if provided
+	if in.State != nil && *in.State != current.State {
+		if !IsValidTransition(current.State, *in.State) {
+			return nil, ErrInvalidTransition
+		}
+		updated, err := s.repo.UpdateState(ctx, id, *in.State)
+		if err != nil {
+			return nil, err
+		}
+		current = updated
+		s.bus.Emit("task.updated", updated)
+		if IsTerminal(*in.State) {
+			// Sessions cleanup runs BEFORE worktree cleanup: subprocess writing
+			// to a worktree that's about to disappear would become a zombie
+			// writing to a non-existent path. Stop first ensures clean shutdown.
+			s.runSessionCleanup(ctx, id)
+			s.runWorktreeCleanup(ctx, id)
+		}
+	} else if in.Title != nil || in.Description != nil || in.Branch != nil {
+		// Emit update event even if just non-state fields were updated
+		s.bus.Emit("task.updated", current)
 	}
-	updated, err := s.repo.UpdateState(ctx, id, *in.State)
-	if err != nil {
-		return nil, err
-	}
-	s.bus.Emit("task.updated", updated)
-	if IsTerminal(*in.State) {
-		// Sessions cleanup runs BEFORE worktree cleanup: subprocess writing
-		// to a worktree that's about to disappear would become a zombie
-		// writing to a non-existent path. Stop first ensures clean shutdown.
-		s.runSessionCleanup(ctx, id)
-		s.runWorktreeCleanup(ctx, id)
-	}
-	return updated, nil
+
+	return current, nil
 }
 
 func (s *TasksService) Discard(ctx context.Context, id string) error {

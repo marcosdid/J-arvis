@@ -36,11 +36,6 @@ func NewServer(
 	return s
 }
 
-// registerTools wires the 7 task/project tools. Implementations live in
-// tools.go and are added in Stage 8; calling registerTools today with no
-// AddTool calls is intentional — the SDK exposes an empty tools/list.
-func (s *Server) registerTools() {}
-
 // Token exposes the bearer token so main.go can pass it to spec-#2 wiring
 // (settings.json writer). NOT for logging.
 func (s *Server) Token() *BearerToken { return s.token }
