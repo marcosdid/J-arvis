@@ -90,12 +90,12 @@ func main() {
 		rt = newE2EFakeRuntime()
 	}
 
+	catalogRoot := catalog.MustLoad()
 	sessionsSvc := core.NewSessionsService(
 		sessionsRepo, tasksRepo, worktreesRepo, projectsRepo, worktreesSvc,
-		rt, tokenRegistry, hookServer, lazyBus, claudeHome,
+		rt, tokenRegistry, hookServer, catalogRoot, lazyBus, claudeHome,
 	)
 
-	catalogRoot := catalog.MustLoad()
 	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
 	tasksAPI := api.NewTasksAPI(tasksSvc)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)

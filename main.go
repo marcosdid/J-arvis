@@ -95,13 +95,14 @@ func main() {
 		claudeHome = filepath.Join(os.Getenv("HOME"), ".claude")
 	}
 
+	catalogRoot := catalog.MustLoad()
+
 	runtime := sandbox.NewAijailRuntime()
 	sessionsSvc := core.NewSessionsService(
 		sessionsRepo, tasksRepo, worktreesRepo, projectsRepo, worktreesSvc,
-		runtime, tokenRegistry, hookServer, lazyBus, claudeHome,
+		runtime, tokenRegistry, hookServer, catalogRoot, lazyBus, claudeHome,
 	)
 
-	catalogRoot := catalog.MustLoad()
 	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
 	tasksAPI := api.NewTasksAPI(tasksSvc)
 	catalogAPI := api.NewCatalogAPI(catalogRoot)

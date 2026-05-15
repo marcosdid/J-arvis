@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/events"
 	"github.com/marcosdid/jarvis/internal/hooks"
 	"github.com/marcosdid/jarvis/internal/sandbox"
@@ -83,6 +84,7 @@ func newSessionsServiceForTest(t *testing.T) (*SessionsService, *sql.DB, string)
 		newFakeRuntime(),
 		hooks.NewTokenRegistry(),
 		&fakeHookServer{baseURL: "http://127.0.0.1:55555"},
+		catalog.MustLoad(),
 		bus, t.TempDir(),
 	)
 	return svc, db, t.TempDir()

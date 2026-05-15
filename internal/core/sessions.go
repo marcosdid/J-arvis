@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/events"
 	"github.com/marcosdid/jarvis/internal/hooks"
 	"github.com/marcosdid/jarvis/internal/sandbox"
@@ -30,6 +31,7 @@ type SessionsService struct {
 	runtime    sandbox.Runtime
 	registry   *hooks.TokenRegistry
 	hookSrv    HookServer
+	catalog    *catalog.Catalog
 	bus        events.Emitter
 	claudeHome string
 }
@@ -43,12 +45,13 @@ func NewSessionsService(
 	runtime sandbox.Runtime,
 	registry *hooks.TokenRegistry,
 	hookSrv HookServer,
+	cat *catalog.Catalog,
 	bus events.Emitter,
 	claudeHome string,
 ) *SessionsService {
 	return &SessionsService{
 		sessions: sessions, tasks: tasks, worktrees: worktrees, projects: projects, wtSvc: wtSvc,
-		runtime: runtime, registry: registry, hookSrv: hookSrv, bus: bus,
+		runtime: runtime, registry: registry, hookSrv: hookSrv, catalog: cat, bus: bus,
 		claudeHome: claudeHome,
 	}
 }
@@ -101,19 +104,30 @@ func (s *SessionsService) Start(ctx context.Context, taskID string) (*store.Sess
 	sessionID := uuid.NewString()
 	token := s.registry.Generate(sessionID)
 
-	// 5. Write .claude/settings.json + .ai-jail (+ gitignore).
+	// 5. Resolve permission profile (catalog) → claude_args for ai-jail.
+	profileName := s.catalog.FallbackPermissionProfile
+	if task.PermissionProfile != nil && *task.PermissionProfile != "" {
+		profileName = *task.PermissionProfile
+	}
+	profile, err := s.catalog.ResolveProfile(profileName)
+	if err != nil {
+		s.registry.Revoke(token)
+		return nil, fmt.Errorf("resolve permission profile: %w", err)
+	}
+
+	// 6. Write .claude/settings.json + .ai-jail (+ gitignore).
 	if err := sandbox.WriteSettings(cwd, s.hookSrv.BaseURL(), token); err != nil {
 		s.registry.Revoke(token)
 		return nil, fmt.Errorf("write settings: %w", err)
 	}
 	_ = sandbox.EnsureGitignore(cwd)
-	if err := sandbox.WriteAijailConfig(cwd, nil); err != nil {
+	if err := sandbox.WriteAijailConfig(cwd, profile.ClaudeArgs); err != nil {
 		_ = sandbox.RemoveSettings(cwd)
 		s.registry.Revoke(token)
 		return nil, fmt.Errorf("write .ai-jail: %w", err)
 	}
 
-	// 6. Spawn subprocess.
+	// 7. Spawn subprocess.
 	handle, err := s.runtime.Spawn(ctx, sandbox.RuntimeSpec{Cwd: cwd, Terminal: terminal})
 	if err != nil {
 		_ = sandbox.RemoveAijailConfig(cwd)
@@ -122,7 +136,7 @@ func (s *SessionsService) Start(ctx context.Context, taskID string) (*store.Sess
 		return nil, fmt.Errorf("spawn ai-jail: %w", err)
 	}
 
-	// 7. Persist row.
+	// 8. Persist row.
 	pid := handle.PID
 	row := store.Session{
 		ID: sessionID, TaskID: taskID,
