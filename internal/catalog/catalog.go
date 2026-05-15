@@ -34,3 +34,39 @@ type Catalog struct {
 	PermissionProfiles        map[string]PermissionProfile `yaml:"permission_profiles"          json:"-"`
 	Templates                 map[string]Template          `yaml:"templates"                    json:"-"`
 }
+
+type Resolved struct {
+	TemplateName string
+	ProfileName  string
+	ClaudeArgs   []string
+	BranchPrefix string
+}
+
+func (c *Catalog) Resolve(templateName string) (Resolved, error) {
+	if templateName == "" {
+		p := c.PermissionProfiles[c.FallbackPermissionProfile]
+		return Resolved{
+			ProfileName: c.FallbackPermissionProfile,
+			ClaudeArgs:  p.ClaudeArgs,
+		}, nil
+	}
+	t, ok := c.Templates[templateName]
+	if !ok {
+		return Resolved{}, fmt.Errorf("%w: %s", ErrTemplateUnknown, templateName)
+	}
+	p := c.PermissionProfiles[t.DefaultPermissionProfile]
+	return Resolved{
+		TemplateName: templateName,
+		ProfileName:  t.DefaultPermissionProfile,
+		ClaudeArgs:   p.ClaudeArgs,
+		BranchPrefix: t.BranchPrefix,
+	}, nil
+}
+
+func (c *Catalog) ResolveProfile(profileName string) (PermissionProfile, error) {
+	p, ok := c.PermissionProfiles[profileName]
+	if !ok {
+		return PermissionProfile{}, fmt.Errorf("%w: %s", ErrProfileMissing, profileName)
+	}
+	return p, nil
+}

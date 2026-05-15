@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -80,5 +81,74 @@ templates: {}`,
 				t.Errorf("err=%q, want substring %q", err.Error(), tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestResolveEmptyTemplateUsesFallback(t *testing.T) {
+	c := MustLoad()
+	r, err := c.Resolve("")
+	if err != nil {
+		t.Fatalf("Resolve(\"\"): %v", err)
+	}
+	if r.TemplateName != "" {
+		t.Errorf("TemplateName=%q, want \"\"", r.TemplateName)
+	}
+	if r.ProfileName != c.FallbackPermissionProfile {
+		t.Errorf("ProfileName=%q, want %q", r.ProfileName, c.FallbackPermissionProfile)
+	}
+}
+
+func TestResolveKnownTemplateUsesItsProfile(t *testing.T) {
+	c := MustLoad()
+	// Pick any template that exists in the embedded catalog.
+	var pickName string
+	var pick Template
+	for k, v := range c.Templates {
+		pickName, pick = k, v
+		break
+	}
+	r, err := c.Resolve(pickName)
+	if err != nil {
+		t.Fatalf("Resolve(%q): %v", pickName, err)
+	}
+	if r.TemplateName != pickName {
+		t.Errorf("TemplateName=%q, want %q", r.TemplateName, pickName)
+	}
+	if r.ProfileName != pick.DefaultPermissionProfile {
+		t.Errorf("ProfileName=%q, want %q", r.ProfileName, pick.DefaultPermissionProfile)
+	}
+	if r.BranchPrefix != pick.BranchPrefix {
+		t.Errorf("BranchPrefix=%q, want %q", r.BranchPrefix, pick.BranchPrefix)
+	}
+}
+
+func TestResolveUnknownTemplateErrors(t *testing.T) {
+	c := MustLoad()
+	_, err := c.Resolve("ghost-template")
+	if !errors.Is(err, ErrTemplateUnknown) {
+		t.Fatalf("err=%v, want ErrTemplateUnknown", err)
+	}
+}
+
+func TestResolveProfileMissingErrors(t *testing.T) {
+	c := MustLoad()
+	_, err := c.ResolveProfile("ghost-profile")
+	if !errors.Is(err, ErrProfileMissing) {
+		t.Fatalf("err=%v, want ErrProfileMissing", err)
+	}
+}
+
+func TestResolveProfileKnownReturnsClaudeArgs(t *testing.T) {
+	c := MustLoad()
+	p, err := c.ResolveProfile(c.FallbackPermissionProfile)
+	if err != nil {
+		t.Fatalf("ResolveProfile: %v", err)
+	}
+	if p.Name != c.FallbackPermissionProfile {
+		t.Errorf("Name=%q, want %q", p.Name, c.FallbackPermissionProfile)
+	}
+	// ClaudeArgs may be empty (default profile) — just verify it's not nil.
+	if p.ClaudeArgs == nil {
+		t.Error("ClaudeArgs is nil; want []string (possibly empty)")
 	}
 }
