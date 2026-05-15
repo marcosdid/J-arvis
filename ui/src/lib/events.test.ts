@@ -5,10 +5,10 @@ describe('dispatch', () => {
   it('calls handler matching type', () => {
     const onStatus = vi.fn();
     const event: WsEvent = {
-      type: 'session.status', session_id: 'x', task_id: null,
-      payload: { status: 'idle', previous: 'executing' }, at: '...',
+      type: 'session.status_changed', session_id: 'x', task_id: null,
+      payload: { previous: 'executing', current: 'idle' }, at: '...',
     };
-    dispatch(event, { 'session.status': onStatus });
+    dispatch(event, { 'session.status_changed': onStatus });
     expect(onStatus).toHaveBeenCalledWith(event);
   });
 
@@ -16,7 +16,7 @@ describe('dispatch', () => {
     const handler = vi.fn();
     // @ts-expect-error testing unknown type at runtime
     dispatch({ type: 'session.unknown', session_id: 'x', payload: {}, at: '' },
-             { 'session.status': handler });
+             { 'session.status_changed': handler });
     expect(handler).not.toHaveBeenCalled();
   });
 });

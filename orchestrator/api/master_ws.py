@@ -90,6 +90,8 @@ async def master_ws(websocket: WebSocket) -> None:
                     await pty_ops.write(handle.master_fd, msg["data"].encode())
             elif msg["type"] == "resize":
                 pty_ops.resize(handle.master_fd, msg["rows"], msg["cols"])
+            elif msg["type"] == "ping":
+                await websocket.send_json({"type": "pong", "ts": msg["ts"]})
 
     async def pty_to_browser() -> None:
         while True:

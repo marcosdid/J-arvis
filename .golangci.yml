@@ -1,0 +1,32 @@
+run:
+  timeout: 3m
+  tests: true
+  build-tags:
+    - webkit2_41
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - gosec
+    - gocritic
+
+linters-settings:
+  gosec:
+    excludes:
+      - G104  # unhandled errors (we accept _ = … on best-effort cleanup)
+      - G204  # subprocess with potentially tainted input — git CLI is intentional
+      - G306  # WriteFile perms — test fixtures only
+
+issues:
+  exclude-dirs:
+    - ui
+    - build
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck

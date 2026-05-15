@@ -1,136 +1,43 @@
-:root {
-  font-family: system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
-  color-scheme: light dark;
-}
+@import './lib/tokens.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-500.css';
+@import '@fontsource/jetbrains-mono/latin-600.css';
+@import '@fontsource/jetbrains-mono/latin-700.css';
+@import '@fontsource/jetbrains-mono/latin-800.css';
+@import '@fontsource/space-grotesk/latin-600.css';
+@import '@fontsource/space-grotesk/latin-700.css';
+@import "tailwindcss";
+@config "../tailwind.config.ts";
+@import "tw-animate-css";
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
 
 body {
-  margin: 0;
+  background: var(--bg-void);
+  color: var(--text-emphasis);
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum';
 }
 
-.app-main {
-  padding: 1.5rem;
-  max-width: 960px;
-  margin-inline: auto;
+/* Scanlines overlay (CIPHER identity) */
+body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(74, 222, 128, 0.04) 2px,
+    rgba(74, 222, 128, 0.04) 3px
+  );
 }
 
-h1 {
-  margin-block-end: 1rem;
+/* Blink animation for cursor and live-dots */
+@keyframes cipher-blink {
+  50% { opacity: 0.3; }
 }
-
-h2,
-h3,
-h4 {
-  margin-block: 1rem 0.25rem;
+@keyframes cipher-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
 }
-
-form[aria-label='add-project'] {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-block-end: 1rem;
-}
-
-form[aria-label='add-project'] input {
-  flex: 1 1 14rem;
-  padding: 0.4rem 0.6rem;
-}
-
-ul {
-  list-style: none;
-  padding: 0;
-}
-
-li.project {
-  border: 1px solid color-mix(in oklab, currentColor 20%, transparent);
-  border-radius: 0.5rem;
-  padding: 1rem;
-  margin-block-end: 1rem;
-}
-
-li.project header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-block-end: 0.5rem;
-}
-
-li.project header h3 {
-  margin: 0;
-}
-
-li.worktree,
-li.session {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-}
-
-button {
-  padding: 0.3rem 0.7rem;
-  border-radius: 0.3rem;
-  cursor: pointer;
-}
-
-.template-badge, .profile-badge {
-  display: inline-block;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  margin-right: 4px;
-}
-.template-badge { background: #e5e7eb; color: #1f2937; }
-.profile-yellow { background: #fef3c7; color: #92400e; }
-.profile-gray { background: #e5e7eb; color: #1f2937; }
-.profile-green { background: #d1fae5; color: #065f46; }
-
-.app-layout {
-  display: grid;
-  grid-template-columns: 1fr 400px;
-  height: 100vh;
-}
-
-.app-main {
-  overflow: auto;
-}
-
-.master-sidebar {
-  display: flex;
-  flex-direction: column;
-  width: 400px;
-  height: 100vh;
-  background: #1e293b;
-  color: #e2e8f0;
-  border-left: 1px solid #334155;
-}
-
-.master-sidebar header {
-  display: flex;
-  flex-direction: column;
-  padding: 8px 12px;
-  background: #0f172a;
-}
-
-.master-sidebar header h3 {
-  margin: 0;
-  font-size: 0.875rem;
-}
-
-.master-sidebar header .hint {
-  font-size: 0.75rem;
-  color: #94a3b8;
-}
-
-.master-term {
-  flex: 1;
-  padding: 4px;
-}
-
-.system-msg {
-  padding: 6px 12px;
-  font-size: 0.8rem;
-}
-
-.system-msg.warn { background: #78350f; color: #fef3c7; }
-.system-msg.error { background: #7f1d1d; color: #fee2e2; }

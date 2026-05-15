@@ -23,6 +23,7 @@ ui/dist/
 ui/.vite/
 ui/coverage/
 ui/src/**/*.js
+!ui/src/wailsjs/**/*.js
 ui/vite.config.js
 ui/vitest.setup.js
 *.tsbuildinfo
@@ -46,5 +47,10 @@ test-results/
 
 # Build / cache
 dist/
-build/
+build/bin/
 *.log
+.superpowers/
+coverage.out
+ui/test-results/
+ui/playwright-report/
+ui/e2e/.e2e-port

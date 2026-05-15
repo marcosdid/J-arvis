@@ -3,7 +3,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './App';
+import { installE2EShim } from './lib/e2e-shim';
 import './index.css';
+
+installE2EShim();
 
 const queryClient = new QueryClient();
 
