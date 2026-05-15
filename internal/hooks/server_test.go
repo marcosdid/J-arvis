@@ -3,9 +3,9 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 )
@@ -61,40 +61,22 @@ func (f *fakeBus) Emit(name string, payload any) {
 	f.mu.Unlock()
 }
 
-func newServerUnderTest(t *testing.T) (*Server, *TokenRegistry, *fakeSessionUpdater, *fakeBus) {
+// newHandlerUnderTest wraps the Handler in a real httptest.NewServer so tests
+// can use absolute URLs against the loopback address it picks.
+func newHandlerUnderTest(t *testing.T) (string, *TokenRegistry, *fakeSessionUpdater, *fakeBus) {
 	t.Helper()
 	reg := NewTokenRegistry()
 	upd := &fakeSessionUpdater{}
 	bus := &fakeBus{}
-	s := NewServer(reg, bus, upd)
-	if _, err := s.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Stop() })
-	return s, reg, upd, bus
+	h := NewHandler(reg, bus, upd)
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	return ts.URL, reg, upd, bus
 }
 
-func TestServer_StartReturnsPortAndBaseURL(t *testing.T) {
-	s := NewServer(NewTokenRegistry(), &fakeBus{}, &fakeSessionUpdater{})
-	port, err := s.Start()
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = s.Stop() }()
-	if port <= 0 {
-		t.Errorf("port: %d", port)
-	}
-	if s.BaseURL() == "" {
-		t.Error("BaseURL empty")
-	}
-	if !s.Started() {
-		t.Error("Started() should be true after Start")
-	}
-}
-
-func TestServer_Notification_UnknownTokenReturns404(t *testing.T) {
-	s, _, _, _ := newServerUnderTest(t)
-	res, err := http.Post(s.BaseURL()+"/api/hooks/Notification/unknown", "application/json",
+func TestHandler_Notification_UnknownTokenReturns404(t *testing.T) {
+	baseURL, _, _, _ := newHandlerUnderTest(t)
+	res, err := http.Post(baseURL+"/api/hooks/Notification/unknown", "application/json",
 		bytes.NewReader([]byte(`{"message":"x"}`)))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
@@ -105,11 +87,11 @@ func TestServer_Notification_UnknownTokenReturns404(t *testing.T) {
 	}
 }
 
-func TestServer_Notification_HappyPath(t *testing.T) {
-	s, reg, upd, bus := newServerUnderTest(t)
+func TestHandler_Notification_HappyPath(t *testing.T) {
+	baseURL, reg, upd, bus := newHandlerUnderTest(t)
 	tok := reg.Generate("sid-1")
 
-	res, err := http.Post(s.BaseURL()+"/api/hooks/Notification/"+tok, "application/json",
+	res, err := http.Post(baseURL+"/api/hooks/Notification/"+tok, "application/json",
 		bytes.NewReader([]byte(`{"message":"need user"}`)))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
@@ -127,18 +109,16 @@ func TestServer_Notification_HappyPath(t *testing.T) {
 	}
 }
 
-func TestServer_Notification_NoEmitIfStatusUnchanged(t *testing.T) {
+func TestHandler_Notification_NoEmitIfStatusUnchanged(t *testing.T) {
 	upd := &fakeSessionUpdater{nextPrev: StatusAwaitingResponse}
 	bus := &fakeBus{}
 	reg := NewTokenRegistry()
-	s := NewServer(reg, bus, upd)
-	if _, err := s.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = s.Stop() }()
+	h := NewHandler(reg, bus, upd)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
 	tok := reg.Generate("sid-1")
 
-	res, err := http.Post(s.BaseURL()+"/api/hooks/Notification/"+tok, "application/json",
+	res, err := http.Post(ts.URL+"/api/hooks/Notification/"+tok, "application/json",
 		bytes.NewReader([]byte(`{"message":"again"}`)))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
@@ -150,11 +130,11 @@ func TestServer_Notification_NoEmitIfStatusUnchanged(t *testing.T) {
 	}
 }
 
-func TestServer_PreToolUse_Returns200WithContinueTrue(t *testing.T) {
-	s, reg, _, bus := newServerUnderTest(t)
+func TestHandler_PreToolUse_Returns200WithContinueTrue(t *testing.T) {
+	baseURL, reg, _, bus := newHandlerUnderTest(t)
 	tok := reg.Generate("sid-1")
 
-	res, err := http.Post(s.BaseURL()+"/api/hooks/PreToolUse/"+tok, "application/json",
+	res, err := http.Post(baseURL+"/api/hooks/PreToolUse/"+tok, "application/json",
 		bytes.NewReader([]byte(`{"tool_name":"Read"}`)))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
@@ -173,10 +153,10 @@ func TestServer_PreToolUse_Returns200WithContinueTrue(t *testing.T) {
 	}
 }
 
-func TestServer_PreToolUse_MissingToolNameReturns422(t *testing.T) {
-	s, reg, _, _ := newServerUnderTest(t)
+func TestHandler_PreToolUse_MissingToolNameReturns422(t *testing.T) {
+	baseURL, reg, _, _ := newHandlerUnderTest(t)
 	tok := reg.Generate("sid-1")
-	res, err := http.Post(s.BaseURL()+"/api/hooks/PreToolUse/"+tok, "application/json",
+	res, err := http.Post(baseURL+"/api/hooks/PreToolUse/"+tok, "application/json",
 		bytes.NewReader([]byte(`{}`)))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
@@ -187,11 +167,11 @@ func TestServer_PreToolUse_MissingToolNameReturns422(t *testing.T) {
 	}
 }
 
-func TestServer_Stop_StatusChangedOnlyIfPrevDifferent(t *testing.T) {
-	s, reg, _, bus := newServerUnderTest(t)
+func TestHandler_Stop_StatusChangedOnlyIfPrevDifferent(t *testing.T) {
+	baseURL, reg, _, bus := newHandlerUnderTest(t)
 	tok := reg.Generate("sid-1")
 
-	res, err := http.Post(s.BaseURL()+"/api/hooks/Stop/"+tok, "application/json",
+	res, err := http.Post(baseURL+"/api/hooks/Stop/"+tok, "application/json",
 		bytes.NewReader([]byte(`{}`)))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
@@ -208,16 +188,5 @@ func TestServer_Stop_StatusChangedOnlyIfPrevDifferent(t *testing.T) {
 		if c.Name == "session.stopped" {
 			t.Errorf("hook Stop should not emit session.stopped: %+v", bus.calls)
 		}
-	}
-}
-
-func TestServer_GracefulShutdown(t *testing.T) {
-	s, _, _, _ := newServerUnderTest(t)
-	if err := s.Stop(); err != nil {
-		t.Errorf("Stop: %v", err)
-	}
-	// Second Stop should be no-op (idempotent).
-	if err := s.Stop(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		t.Errorf("second Stop: %v", err)
 	}
 }

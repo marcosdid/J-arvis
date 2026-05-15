@@ -14,6 +14,7 @@ import (
 	"github.com/marcosdid/jarvis/internal/events"
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
+	"github.com/marcosdid/jarvis/internal/localhttp"
 	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
 
@@ -68,16 +69,21 @@ func main() {
 
 	tokenRegistry := hooks.NewTokenRegistry()
 	hookUpdater := store.NewSessionsHookAdapter(sessionsRepo)
-	hookServer := hooks.NewServer(tokenRegistry, lazyBus, hookUpdater)
+	hookHandler := hooks.NewHandler(tokenRegistry, lazyBus, hookUpdater)
+
+	localSrv := localhttp.New()
+	if err := localSrv.Mount("/api/hooks/", hookHandler); err != nil {
+		log.Fatalf("mount hooks: %v", err)
+	}
 
 	sandboxOK := true
 	var sandboxReason string
-	if port, err := hookServer.Start(); err != nil {
-		log.Printf("hook server bind failed: %v", err)
+	if port, err := localSrv.Start(); err != nil {
+		log.Printf("local http bind failed: %v", err)
 		sandboxOK = false
-		sandboxReason = "hook server failed to bind: " + err.Error()
+		sandboxReason = "local http server failed to bind: " + err.Error()
 	} else {
-		log.Printf("hook server listening on 127.0.0.1:%d", port)
+		log.Printf("local http listening on 127.0.0.1:%d", port)
 	}
 	if err := sandbox.SandboxAvailable(); err != nil {
 		sandboxOK = false
@@ -100,7 +106,7 @@ func main() {
 	runtime := sandbox.NewAijailRuntime()
 	sessionsSvc := core.NewSessionsService(
 		sessionsRepo, tasksRepo, worktreesRepo, projectsRepo, worktreesSvc,
-		runtime, tokenRegistry, hookServer, catalogRoot, lazyBus, claudeHome,
+		runtime, tokenRegistry, localSrv, catalogRoot, lazyBus, claudeHome,
 	)
 
 	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
@@ -130,8 +136,8 @@ func main() {
 			realBus.Store(&emitter)
 		},
 		OnShutdown: func(_ context.Context) {
-			if err := hookServer.Stop(); err != nil {
-				log.Printf("hook server shutdown: %v", err)
+			if err := localSrv.Stop(); err != nil {
+				log.Printf("local http shutdown: %v", err)
 			}
 		},
 		Bind: []any{
@@ -147,7 +153,7 @@ func main() {
 	})
 	if wailsErr != nil {
 		// OnShutdown does not fire if Run fails before the window opens.
-		_ = hookServer.Stop()
+		_ = localSrv.Stop()
 		log.Fatalf("wails.Run: %v", wailsErr)
 	}
 }

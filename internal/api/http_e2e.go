@@ -38,8 +38,8 @@ func NewE2EServer(tasks *TasksAPI, projects *ProjectsAPI, worktrees *WorktreesAP
 	return &E2EServer{tasks: tasks, projects: projects, worktrees: worktrees, sessions: sessions, master: master}
 }
 
-// SetHookBase tells the test harness where the hook server is so simulate_hook
-// can replay HTTP calls. Set from cmd/jarvis-e2e-http main after hookServer.Start().
+// SetHookBase tells the test harness where the hook routes live so simulate_hook
+// can replay HTTP calls. Set from cmd/jarvis-e2e-http main after localSrv.Start().
 func (s *E2EServer) SetHookBase(base string) { s.hookBase = base }
 
 // SetTokenRegistry wires the in-memory hook-token registry so the

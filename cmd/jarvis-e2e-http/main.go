@@ -28,6 +28,7 @@ import (
 	"github.com/marcosdid/jarvis/internal/events"
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
+	"github.com/marcosdid/jarvis/internal/localhttp"
 	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
 )
@@ -68,13 +69,18 @@ func main() {
 
 	tokenRegistry := hooks.NewTokenRegistry()
 	hookUpdater := store.NewSessionsHookAdapter(sessionsRepo)
-	hookServer := hooks.NewServer(tokenRegistry, lazyBus, hookUpdater)
-	hookPort, err := hookServer.Start()
-	if err != nil {
-		log.Fatalf("hook server: %v", err)
+	hookHandler := hooks.NewHandler(tokenRegistry, lazyBus, hookUpdater)
+
+	localSrv := localhttp.New()
+	if err := localSrv.Mount("/api/hooks/", hookHandler); err != nil {
+		log.Fatalf("mount hooks: %v", err)
 	}
-	log.Printf("hook server listening on 127.0.0.1:%d", hookPort)
-	defer func() { _ = hookServer.Stop() }()
+	hookPort, err := localSrv.Start()
+	if err != nil {
+		log.Fatalf("local http: %v", err)
+	}
+	log.Printf("local http listening on 127.0.0.1:%d", hookPort)
+	defer func() { _ = localSrv.Stop() }()
 
 	gitOps := jgit.NewSubprocessOps()
 	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
@@ -93,7 +99,7 @@ func main() {
 	catalogRoot := catalog.MustLoad()
 	sessionsSvc := core.NewSessionsService(
 		sessionsRepo, tasksRepo, worktreesRepo, projectsRepo, worktreesSvc,
-		rt, tokenRegistry, hookServer, catalogRoot, lazyBus, claudeHome,
+		rt, tokenRegistry, localSrv, catalogRoot, lazyBus, claudeHome,
 	)
 
 	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
@@ -107,7 +113,7 @@ func main() {
 	// Wire the hook proxy + token reverse-lookup for /e2e/sessions/simulate_hook
 	// and /e2e/sessions/__token BEFORE Start: Start spawns the serving goroutine,
 	// so these writes must happen-before it to avoid a data race.
-	srv.SetHookBase(hookServer.BaseURL())
+	srv.SetHookBase(localSrv.BaseURL())
 	srv.SetTokenRegistry(tokenRegistry)
 	if _, err := srv.Start(); err != nil {
 		log.Fatalf("e2e server start: %v", err)

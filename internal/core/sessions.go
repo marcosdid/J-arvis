@@ -17,7 +17,8 @@ import (
 	"github.com/marcosdid/jarvis/internal/store"
 )
 
-// HookServer is the minimal slice of *hooks.Server this service needs.
+// HookServer is the minimal slice that this service needs from the listener
+// hosting the hook routes (today: *localhttp.Server).
 type HookServer interface {
 	BaseURL() string
 }
