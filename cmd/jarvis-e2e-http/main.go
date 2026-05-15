@@ -10,7 +10,8 @@
 // At runtime, prints `E2E_HTTP_PORT=<n>` to stdout and blocks on SIGTERM.
 //
 // Runtime selection:
-//   JARVIS_E2E_RUNTIME=fake → in-process fake (no fork). Default → AijailRuntime.
+//
+//	JARVIS_E2E_RUNTIME=fake → in-process fake (no fork). Default → AijailRuntime.
 package main
 
 import (

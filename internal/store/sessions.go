@@ -126,7 +126,9 @@ func (r *SessionsRepo) ListByTask(ctx context.Context, taskID string) ([]Session
 }
 
 func (r *SessionsRepo) listByTaskWhere(ctx context.Context, taskID, extra string) ([]Session, error) {
-	q := `SELECT ` + sessionsSelectCols + ` FROM sessions WHERE task_id = ? ` + extra + ` ORDER BY started_at ASC`
+	// G202 false positive: extra is a compile-time constant from the two
+	// callers below ("AND ended_at IS NULL" or ""), never user input.
+	q := `SELECT ` + sessionsSelectCols + ` FROM sessions WHERE task_id = ? ` + extra + ` ORDER BY started_at ASC` //nolint:gosec
 	rows, err := r.db.QueryContext(ctx, q, taskID)
 	if err != nil {
 		return nil, err

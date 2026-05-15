@@ -9,6 +9,7 @@ import (
 // SandboxAvailable returns nil iff all sandbox prerequisites are present:
 //   - "ai-jail" binary in $PATH
 //   - at least one supported terminal emulator in $PATH (or JARVIS_TERMINAL set)
+//
 // Otherwise returns a structured error.
 func SandboxAvailable() error {
 	if _, err := exec.LookPath("ai-jail"); err != nil {

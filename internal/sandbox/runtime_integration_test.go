@@ -13,14 +13,15 @@ import (
 // TestAijailRuntime_SpawnAndKill_FakeBinary exercises a real fork+exec via the
 // testdata/fake-aijail.sh fixture. It is GATED BEHIND `//go:build integration`
 // because:
-//   1. Forking subprocesses interacts with the host kernel; PID-reuse + race
-//      detector + heavy workloads have caused unstable behavior in this
-//      project's history (see runtime.go Spawn comment).
-//   2. Default `go test` should remain fork-free so unit suites run safely on
-//      developer machines and CI without external dependencies.
+//  1. Forking subprocesses interacts with the host kernel; PID-reuse + race
+//     detector + heavy workloads have caused unstable behavior in this
+//     project's history (see runtime.go Spawn comment).
+//  2. Default `go test` should remain fork-free so unit suites run safely on
+//     developer machines and CI without external dependencies.
 //
 // Run only when explicitly opting in:
-//   go test -tags=integration ./internal/sandbox/...
+//
+//	go test -tags=integration ./internal/sandbox/...
 func TestAijailRuntime_SpawnAndKill_FakeBinary(t *testing.T) {
 	rt := &AijailRuntime{
 		BuildArgv: func(spec RuntimeSpec) []string {
