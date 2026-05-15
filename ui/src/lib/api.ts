@@ -6,6 +6,7 @@ import * as TasksBinding from '../wailsjs/go/api/TasksAPI';
 import * as ProjectsBinding from '../wailsjs/go/api/ProjectsAPI';
 import * as WorktreesBinding from '../wailsjs/go/api/WorktreesAPI';
 import * as SessionsBinding from '../wailsjs/go/api/SessionsAPI';
+import * as CatalogBinding from '../wailsjs/go/api/CatalogAPI';
 
 export type Repository = {
   id: string;
@@ -270,11 +271,18 @@ export const api = {
   getActiveRun: (_taskId: string): Promise<Run> => notFound<Run>(),
   stopRun: (_runId: string): Promise<void> => noop(),
   bootstrapManifest: (_taskId: string): Promise<BootstrapSession> => notFound<BootstrapSession>(),
-  getCatalog: (): Promise<Catalog> =>
-    Promise.resolve({
+  getCatalog: async (): Promise<Catalog> => {
+    const v = await CatalogBinding.Get();
+    return {
       version: '1',
-      fallback_permission_profile: 'default',
-      permission_profiles: [{ name: 'default', description: 'F10 default', claude_args: [] }],
-      templates: [],
-    }),
+      fallback_permission_profile: v.fallback_permission_profile,
+      permission_profiles: v.permission_profiles ?? [],
+      templates: (v.templates ?? []).map((t) => ({
+        name: t.name,
+        description: t.description,
+        default_permission_profile: t.default_permission_profile,
+        branch_prefix: t.branch_prefix,
+      })),
+    };
+  },
 };

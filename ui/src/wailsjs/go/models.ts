@@ -1,5 +1,41 @@
 export namespace api {
 	
+	export class CatalogView {
+	    version: string;
+	    fallback_permission_profile: string;
+	    permission_profiles: catalog.PermissionProfile[];
+	    templates: catalog.Template[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CatalogView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.fallback_permission_profile = source["fallback_permission_profile"];
+	        this.permission_profiles = this.convertValues(source["permission_profiles"], catalog.PermissionProfile);
+	        this.templates = this.convertValues(source["templates"], catalog.Template);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CreateTaskInput {
 	    project_id: string;
 	    title: string;
@@ -92,6 +128,45 @@ export namespace api {
 	        this.path = source["path"];
 	        this.branch = source["branch"];
 	        this.is_orphan = source["is_orphan"];
+	    }
+	}
+
+}
+
+export namespace catalog {
+	
+	export class PermissionProfile {
+	    name: string;
+	    description: string;
+	    claude_args: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PermissionProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.claude_args = source["claude_args"];
+	    }
+	}
+	export class Template {
+	    name: string;
+	    description: string;
+	    default_permission_profile: string;
+	    branch_prefix: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Template(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.default_permission_profile = source["default_permission_profile"];
+	        this.branch_prefix = source["branch_prefix"];
 	    }
 	}
 
