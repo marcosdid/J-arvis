@@ -15,6 +15,7 @@ import (
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
 	"github.com/marcosdid/jarvis/internal/localhttp"
+	"github.com/marcosdid/jarvis/internal/mcp"
 	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
 
@@ -71,27 +72,6 @@ func main() {
 	hookUpdater := store.NewSessionsHookAdapter(sessionsRepo)
 	hookHandler := hooks.NewHandler(tokenRegistry, lazyBus, hookUpdater)
 
-	localSrv := localhttp.New()
-	if err := localSrv.Mount("/api/hooks/", hookHandler); err != nil {
-		log.Fatalf("mount hooks: %v", err)
-	}
-
-	sandboxOK := true
-	var sandboxReason string
-	if port, err := localSrv.Start(); err != nil {
-		log.Printf("local http bind failed: %v", err)
-		sandboxOK = false
-		sandboxReason = "local http server failed to bind: " + err.Error()
-	} else {
-		log.Printf("local http listening on 127.0.0.1:%d", port)
-	}
-	if err := sandbox.SandboxAvailable(); err != nil {
-		sandboxOK = false
-		if sandboxReason == "" {
-			sandboxReason = sandbox.DiagnoseSandbox()
-		}
-	}
-
 	gitOps := jgit.NewSubprocessOps()
 	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
 	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, gitOps, lazyBus)
@@ -103,6 +83,15 @@ func main() {
 
 	catalogRoot := catalog.MustLoad()
 
+	// Build the shared listener but DON'T start it yet — mcp.NewServer needs
+	// tasksSvc and projectsSvc, and sessionsSvc needs the listener (for
+	// BaseURL, called lazily inside Start). All Mount calls happen before
+	// Start to avoid the data race we hit in F10.4.20.
+	localSrv := localhttp.New()
+	if err := localSrv.Mount("/api/hooks/", hookHandler); err != nil {
+		log.Fatalf("mount hooks: %v", err)
+	}
+
 	runtime := sandbox.NewAijailRuntime()
 	sessionsSvc := core.NewSessionsService(
 		sessionsRepo, tasksRepo, worktreesRepo, projectsRepo, worktreesSvc,
@@ -110,6 +99,32 @@ func main() {
 	)
 
 	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
+
+	mcpToken := mcp.NewBearerToken()
+	mcpSrv := mcp.NewServer(tasksSvc, projectsSvc, catalogRoot, mcpToken)
+	if err := localSrv.Mount("/api/mcp", mcpSrv.Handler()); err != nil {
+		log.Fatalf("mount mcp: %v", err)
+	}
+
+	sandboxOK := true
+	var sandboxReason string
+	if port, err := localSrv.Start(); err != nil {
+		log.Printf("local http bind failed: %v", err)
+		sandboxOK = false
+		sandboxReason = "local http server failed to bind: " + err.Error()
+	} else {
+		log.Printf("local http listening on 127.0.0.1:%d", port)
+		// mcpToken is consumed in-process by spec #2 (master session writer);
+		// it is intentionally never logged.
+		_ = mcpToken
+	}
+	if err := sandbox.SandboxAvailable(); err != nil {
+		sandboxOK = false
+		if sandboxReason == "" {
+			sandboxReason = sandbox.DiagnoseSandbox()
+		}
+	}
+
 	tasksAPI := api.NewTasksAPI(tasksSvc)
 	catalogAPI := api.NewCatalogAPI(catalogRoot)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
@@ -150,6 +165,8 @@ func main() {
 			sessionsAPI,
 			catalogAPI,
 		},
+		// mcpSrv is mounted on localSrv directly — not bound to Wails (it's
+		// consumed by master-claude over HTTP, not by the UI).
 	})
 	if wailsErr != nil {
 		// OnShutdown does not fire if Run fails before the window opens.

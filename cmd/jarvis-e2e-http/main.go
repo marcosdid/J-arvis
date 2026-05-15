@@ -29,6 +29,7 @@ import (
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
 	"github.com/marcosdid/jarvis/internal/localhttp"
+	"github.com/marcosdid/jarvis/internal/mcp"
 	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
 )
@@ -71,17 +72,6 @@ func main() {
 	hookUpdater := store.NewSessionsHookAdapter(sessionsRepo)
 	hookHandler := hooks.NewHandler(tokenRegistry, lazyBus, hookUpdater)
 
-	localSrv := localhttp.New()
-	if err := localSrv.Mount("/api/hooks/", hookHandler); err != nil {
-		log.Fatalf("mount hooks: %v", err)
-	}
-	hookPort, err := localSrv.Start()
-	if err != nil {
-		log.Fatalf("local http: %v", err)
-	}
-	log.Printf("local http listening on 127.0.0.1:%d", hookPort)
-	defer func() { _ = localSrv.Stop() }()
-
 	gitOps := jgit.NewSubprocessOps()
 	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
 	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, gitOps, lazyBus)
@@ -97,12 +87,34 @@ func main() {
 	}
 
 	catalogRoot := catalog.MustLoad()
+
+	// Build the shared listener but don't start yet — mcp.NewServer needs
+	// tasksSvc and projectsSvc; sessionsSvc needs localSrv (for BaseURL,
+	// called lazily inside Start). All Mount calls happen before Start.
+	localSrv := localhttp.New()
+	if err := localSrv.Mount("/api/hooks/", hookHandler); err != nil {
+		log.Fatalf("mount hooks: %v", err)
+	}
+
 	sessionsSvc := core.NewSessionsService(
 		sessionsRepo, tasksRepo, worktreesRepo, projectsRepo, worktreesSvc,
 		rt, tokenRegistry, localSrv, catalogRoot, lazyBus, claudeHome,
 	)
 
 	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
+
+	mcpToken := mcp.NewBearerToken()
+	mcpSrv := mcp.NewServer(tasksSvc, projectsSvc, catalogRoot, mcpToken)
+	if err := localSrv.Mount("/api/mcp", mcpSrv.Handler()); err != nil {
+		log.Fatalf("mount mcp: %v", err)
+	}
+
+	hookPort, err := localSrv.Start()
+	if err != nil {
+		log.Fatalf("local http: %v", err)
+	}
+	log.Printf("local http listening on 127.0.0.1:%d", hookPort)
+	defer func() { _ = localSrv.Stop() }()
 	tasksAPI := api.NewTasksAPI(tasksSvc)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
