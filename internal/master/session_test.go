@@ -88,3 +88,23 @@ func TestSession_Resize(t *testing.T) {
 		t.Errorf("Resize: %v", err)
 	}
 }
+
+func TestSession_StartAijail_FailsWhenAijailMissing(t *testing.T) {
+	// Strip PATH so exec.LookPath("ai-jail") fails — we don't need the real
+	// binary here, just to exercise the spawn path's failure mode.
+	t.Setenv("PATH", t.TempDir())
+	s := New()
+	_, err := s.StartAijail(t.TempDir())
+	if err == nil {
+		t.Fatal("StartAijail with no ai-jail in PATH: nil err, want spawn error")
+	}
+}
+
+func TestSession_StartAijail_RejectsWhenAlreadyRunning(t *testing.T) {
+	s := New()
+	s.running.Store(true) // simulate already-running
+	_, err := s.StartAijail(t.TempDir())
+	if err == nil {
+		t.Fatal("StartAijail when running: nil err, want 'already running'")
+	}
+}
