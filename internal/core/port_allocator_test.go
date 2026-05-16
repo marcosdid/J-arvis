@@ -2,6 +2,8 @@ package core
 
 import (
 	"errors"
+	"net"
+	"strconv"
 	"testing"
 )
 
@@ -53,5 +55,23 @@ func TestPortAllocator_Exhaustion_ReturnsErrNoFreePort(t *testing.T) {
 	_, err := pa.Allocate()
 	if !errors.Is(err, ErrNoFreePort) {
 		t.Errorf("err=%v, want ErrNoFreePort", err)
+	}
+}
+
+func TestPortAllocator_SocketProbe_SkipsExternallyHeldPort(t *testing.T) {
+	pa := NewPortAllocator()
+	// Hold MinPort externally (simulates another process)
+	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(MinPort))
+	if err != nil {
+		t.Skipf("could not bind %d for test: %v", MinPort, err)
+	}
+	defer ln.Close()
+
+	p, err := pa.Allocate()
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if p == MinPort {
+		t.Errorf("Allocate returned externally-held port %d", p)
 	}
 }
