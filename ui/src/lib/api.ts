@@ -7,6 +7,7 @@ import * as ProjectsBinding from '../wailsjs/go/api/ProjectsAPI';
 import * as WorktreesBinding from '../wailsjs/go/api/WorktreesAPI';
 import * as SessionsBinding from '../wailsjs/go/api/SessionsAPI';
 import * as CatalogBinding from '../wailsjs/go/api/CatalogAPI';
+import * as RunsBinding from '../wailsjs/go/api/RunsAPI';
 
 export type Repository = {
   id: string;
@@ -166,6 +167,34 @@ function toProject(p: StoreProjectShape): Project {
   };
 }
 
+// Backend RunView (post-pivot) carries id/task_id/status/cwd/ports/urls/network_name
+// plus timestamps. Legacy UI Run shape still expects `services` and `manifest_path`.
+// Until the UI is reworked to consume ports/urls directly, project safe defaults so
+// existing components/tests keep compiling.
+function toRun(v: any): Run {
+  return {
+    id: v.id,
+    task_id: v.task_id,
+    cwd: v.cwd,
+    manifest_path: '',
+    status: v.status,
+    services: [],
+    network_name: v.network_name,
+    started_at: String(v.started_at ?? ''),
+    ended_at: v.ended_at != null ? String(v.ended_at) : null,
+    error_message: v.error_message ?? null,
+  };
+}
+
+// Cache the local HTTP base URL on first call. Wails calls are async; cache
+// lets subsequent SSE URL builds avoid re-awaiting the binding.
+let cachedLocalHTTPBase: string | null = null;
+async function getLocalHTTPBase(): Promise<string> {
+  if (cachedLocalHTTPBase != null) return cachedLocalHTTPBase;
+  cachedLocalHTTPBase = await RunsBinding.LocalHTTPBase();
+  return cachedLocalHTTPBase;
+}
+
 function toSession(s: any): Session {
   return {
     id: s.id,
@@ -188,9 +217,6 @@ function notFound<T>(): Promise<T> {
   // For "get one or 404" hooks: useRun, etc. They expect a thrown HTTP 404
   // to mean "no active run" (it gets translated to null by the hook).
   return Promise.reject(new Error('HTTP 404: not implemented in F10 Block A'));
-}
-function noop(): Promise<void> {
-  return Promise.resolve();
 }
 
 export const api = {
@@ -267,9 +293,26 @@ export const api = {
       })),
     ),
   startTaskSession: (_taskId: string): Promise<Session> => notFound<Session>(),
-  startRun: (_taskId: string): Promise<Run> => notFound<Run>(),
-  getActiveRun: (_taskId: string): Promise<Run> => notFound<Run>(),
-  stopRun: (_runId: string): Promise<void> => noop(),
+  startRun: async (taskId: string): Promise<Run> => toRun(await RunsBinding.Start(taskId)),
+  getActiveRun: async (taskId: string): Promise<Run> => {
+    // Backend returns ErrNotFound when nenhuma run ativa; Wails surfaces isso
+    // como Error com mensagem. Hook useRun espera `HTTP 404` prefix pra mapear
+    // pra null — normalize aqui.
+    try {
+      return toRun(await RunsBinding.Get(taskId));
+    } catch (err) {
+      const msg = (err as Error)?.message ?? '';
+      if (/not\s*found/i.test(msg) || msg.toLowerCase().includes('no active run')) {
+        throw new Error('HTTP 404: no active run');
+      }
+      throw err;
+    }
+  },
+  stopRun: (runId: string): Promise<void> => RunsBinding.Stop(runId).then(() => undefined),
+  getRunLogsEventSourceURL: async (runId: string, service: string): Promise<string> => {
+    const base = await getLocalHTTPBase();
+    return `${base}/api/runs/${encodeURIComponent(runId)}/logs?service=${encodeURIComponent(service)}`;
+  },
   bootstrapManifest: (_taskId: string): Promise<BootstrapSession> => notFound<BootstrapSession>(),
   getCatalog: async (): Promise<Catalog> => {
     const v = await CatalogBinding.Get();
