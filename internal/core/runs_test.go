@@ -448,3 +448,99 @@ func TestStopRun_Idempotent(t *testing.T) {
 		t.Errorf("idempotent StopRun should not invoke docker, got stops=%d", len(docker.stops))
 	}
 }
+
+func TestCleanupForTask_StopsActiveRun(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	docker := newFakeDocker()
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+
+	run := store.Run{
+		ID: "run-1", TaskID: "t1", Status: "ready",
+		Cwd: "/x", NetworkName: "net-1",
+		ContainersJSON: `{"web":"cid-w"}`,
+		StartedAt:      time.Now(),
+	}
+	_ = repo.Insert(context.Background(), run)
+
+	svc := NewRunsService(repo, docker, NewPortAllocator(),
+		&stubTasksRepo{}, &stubWorktreesRepo{}, &stubProjectsRepo{},
+		&events.FakeEmitter{})
+
+	if err := svc.CleanupForTask(context.Background(), "t1"); err != nil {
+		t.Fatalf("CleanupForTask: %v", err)
+	}
+	if len(docker.stops) == 0 {
+		t.Error("CleanupForTask should have stopped active run's containers")
+	}
+}
+
+func TestCleanupForTask_NoActiveRun_NoOp(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	docker := newFakeDocker()
+	svc := NewRunsService(repo, docker, NewPortAllocator(),
+		&stubTasksRepo{}, &stubWorktreesRepo{}, &stubProjectsRepo{},
+		&events.FakeEmitter{})
+	if err := svc.CleanupForTask(context.Background(), "no-such-task"); err != nil {
+		t.Errorf("CleanupForTask on empty: %v", err)
+	}
+}
+
+func TestCleanupOrphans_StopsAllActive(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	docker := newFakeDocker()
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+	seedProjectAndTaskForRuns(t, db, "p2", "t2")
+
+	_ = repo.Insert(context.Background(), store.Run{
+		ID: "r1", TaskID: "t1", Status: "ready", Cwd: "/a", NetworkName: "n1",
+		ContainersJSON: `{"web":"cid-w1"}`, StartedAt: time.Now(),
+	})
+	_ = repo.Insert(context.Background(), store.Run{
+		ID: "r2", TaskID: "t2", Status: "ready", Cwd: "/b", NetworkName: "n2",
+		ContainersJSON: `{"web":"cid-w2"}`, StartedAt: time.Now(),
+	})
+
+	svc := NewRunsService(repo, docker, NewPortAllocator(),
+		&stubTasksRepo{}, &stubWorktreesRepo{}, &stubProjectsRepo{},
+		&events.FakeEmitter{})
+
+	if err := svc.CleanupOrphans(context.Background()); err != nil {
+		t.Fatalf("CleanupOrphans: %v", err)
+	}
+	active, _ := repo.ListActive(context.Background())
+	if len(active) != 0 {
+		t.Errorf("active after orphan cleanup: %d, want 0", len(active))
+	}
+}
+
+func TestContainerIDFor_ReturnsCorrectID(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	docker := newFakeDocker()
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+	_ = repo.Insert(context.Background(), store.Run{
+		ID: "run-1", TaskID: "t1", Status: "ready", Cwd: "/x",
+		ContainersJSON: `{"db":"cid-a","backend":"cid-b"}`,
+		StartedAt:      time.Now(),
+	})
+
+	svc := NewRunsService(repo, docker, NewPortAllocator(),
+		&stubTasksRepo{}, &stubWorktreesRepo{}, &stubProjectsRepo{},
+		&events.FakeEmitter{})
+
+	cid, err := svc.ContainerIDFor(context.Background(), "run-1", "db")
+	if err != nil {
+		t.Fatalf("ContainerIDFor: %v", err)
+	}
+	if cid != "cid-a" {
+		t.Errorf("cid=%q, want cid-a", cid)
+	}
+
+	_, err = svc.ContainerIDFor(context.Background(), "run-1", "ghost")
+	if err == nil {
+		t.Error("ContainerIDFor with unknown service should error")
+	}
+}

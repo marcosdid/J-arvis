@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -423,4 +424,51 @@ func (s *RunsService) StopRun(ctx context.Context, runID string) error {
 	}
 	s.emitStatus(run, run.Status, "stopped")
 	return nil
+}
+
+func (s *RunsService) GetActiveByTask(ctx context.Context, taskID string) (*store.Run, error) {
+	return s.repo.GetActiveByTask(ctx, taskID)
+}
+
+func (s *RunsService) CleanupForTask(ctx context.Context, taskID string) error {
+	run, err := s.repo.GetActiveByTask(ctx, taskID)
+	if err != nil || run == nil {
+		return nil
+	}
+	return s.StopRun(ctx, run.ID)
+}
+
+func (s *RunsService) CleanupOrphans(ctx context.Context) error {
+	active, err := s.repo.ListActive(ctx)
+	if err != nil {
+		return err
+	}
+	for _, run := range active {
+		for _, cid := range run.ContainerIDs() {
+			_ = s.docker.Stop(ctx, cid)
+			_ = s.docker.Rm(ctx, cid)
+		}
+		if run.NetworkName != "" {
+			_ = s.docker.NetworkRm(ctx, run.NetworkName)
+		}
+		_ = s.repo.MarkEnded(ctx, run.ID, "stopped", "orphan_cleanup_on_boot")
+	}
+	return nil
+}
+
+func (s *RunsService) ContainerIDFor(ctx context.Context, runID, service string) (string, error) {
+	run, err := s.repo.GetByID(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	cids := run.ContainerIDs()
+	cid, ok := cids[service]
+	if !ok {
+		return "", fmt.Errorf("service %q not found in run %s", service, runID)
+	}
+	return cid, nil
+}
+
+func (s *RunsService) StreamLogs(ctx context.Context, containerID string, dst io.Writer) error {
+	return s.docker.StreamLogs(ctx, containerID, dst)
 }
