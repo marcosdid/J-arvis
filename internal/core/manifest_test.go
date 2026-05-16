@@ -4,7 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadManifest_NotFound_ReturnsErrManifestMissing(t *testing.T) {
@@ -39,5 +42,77 @@ services:
 	}
 	if m.Services["db"].Port != 5432 {
 		t.Errorf("db.Port=%d, want 5432", m.Services["db"].Port)
+	}
+}
+
+func TestManifestValidateCases(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "bad version",
+			yaml: `version: "2"
+services: {db: {image: x, port: 1}}`,
+			wantErr: `unsupported version "2"`,
+		},
+		{
+			name: "image and build",
+			yaml: `version: "1"
+services: {db: {image: x, build: ./y, port: 1}}`,
+			wantErr: `service "db": image and build are mutually exclusive`,
+		},
+		{
+			name: "no image no build",
+			yaml: `version: "1"
+services: {db: {port: 1}}`,
+			wantErr: `service "db": must specify image or build`,
+		},
+		{
+			name: "depends_on unknown",
+			yaml: `version: "1"
+services:
+  a: {image: x, port: 1, depends_on: [ghost]}`,
+			wantErr: `service "a": depends_on "ghost" not found`,
+		},
+		{
+			name: "cycle in depends_on",
+			yaml: `version: "1"
+services:
+  a: {image: x, depends_on: [b]}
+  b: {image: y, depends_on: [a]}`,
+			wantErr: `circular`,
+		},
+		{
+			name: "token references service without port",
+			yaml: `version: "1"
+services:
+  a: {image: x}
+  b: {image: y, env: {URL_A: "$URL_a"}}`,
+			wantErr: `service "b": env value "$URL_a" references service "a" which has no port`,
+		},
+		{
+			name: "token references unknown service",
+			yaml: `version: "1"
+services:
+  a: {image: x, env: {URL_GHOST: "$URL_ghost"}}`,
+			wantErr: `service "a": env value "$URL_ghost" references unknown service "ghost"`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var m ManifestSpec
+			if err := yaml.Unmarshal([]byte(tc.yaml), &m); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			err := m.Validate()
+			if err == nil {
+				t.Fatalf("Validate: nil err, want substring %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("err=%q, want substring %q", err.Error(), tc.wantErr)
+			}
+		})
 	}
 }

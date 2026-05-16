@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -57,4 +60,104 @@ func LoadManifest(cwd string) (*ManifestSpec, error) {
 		return nil, fmt.Errorf("%w: unmarshal: %v", ErrManifestInvalid, err)
 	}
 	return &m, nil
+}
+
+var tokenRe = regexp.MustCompile(`\$(?:PORT|URL)_([A-Za-z0-9_-]+)`)
+
+func (m *ManifestSpec) Validate() error {
+	var problems []string
+
+	if m.Version != "1" {
+		problems = append(problems, fmt.Sprintf("unsupported version %q", m.Version))
+	}
+
+	names := make([]string, 0, len(m.Services))
+	for name := range m.Services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		spec := m.Services[name]
+		hasImage := spec.Image != ""
+		hasBuild := spec.Build != ""
+		switch {
+		case hasImage && hasBuild:
+			problems = append(problems, fmt.Sprintf("service %q: image and build are mutually exclusive", name))
+		case !hasImage && !hasBuild:
+			problems = append(problems, fmt.Sprintf("service %q: must specify image or build", name))
+		}
+		for _, dep := range spec.DependsOn {
+			if _, ok := m.Services[dep]; !ok {
+				problems = append(problems, fmt.Sprintf("service %q: depends_on %q not found", name, dep))
+			}
+		}
+		for _, envVal := range spec.Env {
+			for _, match := range tokenRe.FindAllStringSubmatch(envVal, -1) {
+				refSvc := match[1]
+				ref, ok := m.Services[refSvc]
+				if !ok {
+					problems = append(problems, fmt.Sprintf(
+						"service %q: env value %q references unknown service %q",
+						name, envVal, refSvc))
+					continue
+				}
+				if ref.Port == 0 {
+					problems = append(problems, fmt.Sprintf(
+						"service %q: env value %q references service %q which has no port",
+						name, envVal, refSvc))
+				}
+			}
+		}
+	}
+
+	if cycleErr := detectCycle(m.Services); cycleErr != "" {
+		problems = append(problems, cycleErr)
+	}
+
+	if len(problems) > 0 {
+		return fmt.Errorf("%w: %s", ErrManifestInvalid, strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+func detectCycle(services map[string]ServiceSpec) string {
+	const (
+		white = 0
+		gray  = 1
+		black = 2
+	)
+	color := map[string]int{}
+	for name := range services {
+		color[name] = white
+	}
+	var visit func(name string, path []string) string
+	visit = func(name string, path []string) string {
+		color[name] = gray
+		for _, dep := range services[name].DependsOn {
+			switch color[dep] {
+			case gray:
+				return fmt.Sprintf("circular depends_on: %s -> %s", strings.Join(append(path, name), " -> "), dep)
+			case white:
+				if cyc := visit(dep, append(path, name)); cyc != "" {
+					return cyc
+				}
+			}
+		}
+		color[name] = black
+		return ""
+	}
+	names := make([]string, 0, len(services))
+	for name := range services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if color[name] == white {
+			if cyc := visit(name, nil); cyc != "" {
+				return cyc
+			}
+		}
+	}
+	return ""
 }
