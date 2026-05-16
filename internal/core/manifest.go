@@ -161,3 +161,22 @@ func detectCycle(services map[string]ServiceSpec) string {
 	}
 	return ""
 }
+
+func ResolveSubstitutions(env map[string]string, ports map[string]int, runID, cwd string) map[string]string {
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		v = strings.ReplaceAll(v, "$RUN_ID", runID)
+		v = strings.ReplaceAll(v, "$CWD", cwd)
+		v = tokenRe.ReplaceAllStringFunc(v, func(match string) string {
+			groups := tokenRe.FindStringSubmatch(match)
+			svc := groups[1]
+			port := ports[svc]
+			if strings.HasPrefix(match, "$URL_") {
+				return fmt.Sprintf("http://localhost:%d", port)
+			}
+			return fmt.Sprintf("%d", port)
+		})
+		out[k] = v
+	}
+	return out
+}

@@ -116,3 +116,31 @@ services:
 		})
 	}
 }
+
+func TestResolveSubstitutions(t *testing.T) {
+	env := map[string]string{
+		"DATABASE_URL": "postgresql://localhost:$PORT_db/postgres",
+		"VITE_API":     "$URL_backend",
+		"RUN_LABEL":    "run-$RUN_ID",
+		"WORKDIR":      "$CWD",
+		"PLAIN":        "no substitution",
+	}
+	ports := map[string]int{"db": 31000, "backend": 31001}
+	out := ResolveSubstitutions(env, ports, "abc-123", "/tmp/wt")
+
+	if out["DATABASE_URL"] != "postgresql://localhost:31000/postgres" {
+		t.Errorf("DATABASE_URL=%q", out["DATABASE_URL"])
+	}
+	if out["VITE_API"] != "http://localhost:31001" {
+		t.Errorf("VITE_API=%q", out["VITE_API"])
+	}
+	if out["RUN_LABEL"] != "run-abc-123" {
+		t.Errorf("RUN_LABEL=%q", out["RUN_LABEL"])
+	}
+	if out["WORKDIR"] != "/tmp/wt" {
+		t.Errorf("WORKDIR=%q", out["WORKDIR"])
+	}
+	if out["PLAIN"] != "no substitution" {
+		t.Errorf("PLAIN modified")
+	}
+}
