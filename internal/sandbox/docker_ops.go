@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -80,9 +81,64 @@ func (s *SubprocessDockerOps) Rm(ctx context.Context, containerID string) error 
 	return err
 }
 
-// Keep the remaining 4 stubs (ContainerStart, RunInContainer, StreamLogs,
-// ContainerHealthStatus) from Task 3.1 — Task 3.3 implements them.
-func (s *SubprocessDockerOps) ContainerStart(context.Context, ContainerSpec) (string, error) { return "", nil }
-func (s *SubprocessDockerOps) RunInContainer(context.Context, string, []string, time.Duration) error { return nil }
-func (s *SubprocessDockerOps) StreamLogs(context.Context, string, io.Writer) error          { return nil }
-func (s *SubprocessDockerOps) ContainerHealthStatus(context.Context, string) (string, error) { return "", nil }
+func (s *SubprocessDockerOps) ContainerStart(ctx context.Context, spec ContainerSpec) (string, error) {
+	args := []string{"run", "-d", "--name", spec.Name}
+	if spec.Network != "" {
+		args = append(args, "--network", spec.Network)
+	}
+	if spec.NetworkAlias != "" {
+		args = append(args, "--network-alias", spec.NetworkAlias)
+	}
+	// Deterministic argv ordering across map iterations
+	hostPorts := make([]int, 0, len(spec.PortMap))
+	for hp := range spec.PortMap {
+		hostPorts = append(hostPorts, hp)
+	}
+	sort.Ints(hostPorts)
+	for _, hp := range hostPorts {
+		args = append(args, "-p", fmt.Sprintf("%d:%d", hp, spec.PortMap[hp]))
+	}
+	envKeys := make([]string, 0, len(spec.Env))
+	for k := range spec.Env {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
+		args = append(args, "-e", k+"="+spec.Env[k])
+	}
+	volKeys := make([]string, 0, len(spec.Volumes))
+	for k := range spec.Volumes {
+		volKeys = append(volKeys, k)
+	}
+	sort.Strings(volKeys)
+	for _, k := range volKeys {
+		args = append(args, "-v", k+":"+spec.Volumes[k])
+	}
+	args = append(args, spec.Image)
+	return s.commandFn(ctx, "docker", args...)
+}
+
+func (s *SubprocessDockerOps) RunInContainer(ctx context.Context, containerID string, command []string, timeout time.Duration) error {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	args := append([]string{"exec", containerID}, command...)
+	_, err := s.commandFn(cctx, "docker", args...)
+	return err
+}
+
+func (s *SubprocessDockerOps) ContainerHealthStatus(ctx context.Context, containerID string) (string, error) {
+	return s.commandFn(ctx, "docker", "inspect", "--format", "{{.State.Health.Status}}", containerID)
+}
+
+// StreamLogs runs `docker logs -f` and pipes stdout to dst. Cancels via ctx.
+// Doesn't go through commandFn because it uses pipe streaming (not buffered output).
+// Integration test coverage in Stage 11.
+func (s *SubprocessDockerOps) StreamLogs(ctx context.Context, containerID string, dst io.Writer) error {
+	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", containerID)
+	cmd.Stdout = dst
+	cmd.Stderr = dst
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start docker logs: %w", err)
+	}
+	return cmd.Wait()
+}

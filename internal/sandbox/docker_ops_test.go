@@ -110,3 +110,74 @@ func TestSubprocessDockerOps_Rm_ArgvShape(t *testing.T) {
 		t.Errorf("argv=%v, want %v", cap.calls[0], want)
 	}
 }
+
+func TestSubprocessDockerOps_ContainerStart_ArgvShape(t *testing.T) {
+	cap := &argvCapture{}
+	s := &SubprocessDockerOps{commandFn: cap.cmd}
+	spec := ContainerSpec{
+		Image: "postgres:15", Name: "jarvis-run-abc-db",
+		Network: "jarvis-run-abc", NetworkAlias: "db",
+		PortMap: map[int]int{31000: 5432},
+		Env: map[string]string{"PG_PASSWORD": "dev"},
+		Volumes: map[string]string{"/host": "/container"},
+	}
+	cid, err := s.ContainerStart(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("ContainerStart: %v", err)
+	}
+	if cid != "fake-stdout" {
+		t.Errorf("cid=%q, want fake-stdout", cid)
+	}
+	got := cap.calls[0]
+	expectArg := func(want string) {
+		t.Helper()
+		for _, a := range got {
+			if a == want {
+				return
+			}
+		}
+		t.Errorf("argv missing %q; got %v", want, got)
+	}
+	expectArg("docker")
+	expectArg("run")
+	expectArg("-d")
+	expectArg("--name")
+	expectArg("jarvis-run-abc-db")
+	expectArg("--network")
+	expectArg("jarvis-run-abc")
+	expectArg("--network-alias")
+	expectArg("db")
+	expectArg("-p")
+	expectArg("31000:5432")
+	expectArg("-e")
+	expectArg("PG_PASSWORD=dev")
+	expectArg("-v")
+	expectArg("/host:/container")
+	expectArg("postgres:15")
+}
+
+func TestSubprocessDockerOps_ContainerHealthStatus_ArgvShape(t *testing.T) {
+	cap := &argvCapture{}
+	s := &SubprocessDockerOps{commandFn: cap.cmd}
+	status, err := s.ContainerHealthStatus(context.Background(), "cid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != "fake-stdout" {
+		t.Errorf("status=%q, want fake-stdout", status)
+	}
+	want := []string{"docker", "inspect", "--format", "{{.State.Health.Status}}", "cid-1"}
+	if !equalSlices(cap.calls[0], want) {
+		t.Errorf("argv=%v, want %v", cap.calls[0], want)
+	}
+}
+
+func TestSubprocessDockerOps_RunInContainer_ArgvShape(t *testing.T) {
+	cap := &argvCapture{}
+	s := &SubprocessDockerOps{commandFn: cap.cmd}
+	_ = s.RunInContainer(context.Background(), "cid-1", []string{"psql", "-c", "select 1"}, 30*time.Second)
+	want := []string{"docker", "exec", "cid-1", "psql", "-c", "select 1"}
+	if !equalSlices(cap.calls[0], want) {
+		t.Errorf("argv=%v, want %v", cap.calls[0], want)
+	}
+}
