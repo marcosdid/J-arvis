@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/marcosdid/jarvis/internal/events"
 	"github.com/marcosdid/jarvis/internal/store"
@@ -152,5 +153,56 @@ func TestMasterService_Stop_NoRow_NoOp(t *testing.T) {
 	svc := newTestMasterService(t, repo, &fakeMasterSession{})
 	if err := svc.Stop(context.Background()); err != nil {
 		t.Errorf("Stop on empty: %v", err)
+	}
+}
+
+func TestMasterService_Watchdog_EarlyExit_DeletesRow(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewMasterSessionRepo(db)
+	_ = repo.Upsert(context.Background(), "uuid-1", 99999)
+
+	svc := newTestMasterService(t, repo, &fakeMasterSession{})
+	// Inject a fake waitForProcessExit that returns immediately (simulating
+	// process that died < 2s after spawn).
+	svc.waitForProcessExit = func(_ int) {}
+
+	done := make(chan struct{})
+	go func() {
+		svc.watchdog("uuid-1", 99999)
+		close(done)
+	}()
+	<-done
+
+	_, err := repo.Get(context.Background())
+	if !errors.Is(err, store.ErrMasterSessionNotFound) {
+		t.Errorf("after early-exit watchdog, Get err=%v, want ErrMasterSessionNotFound (row deleted)", err)
+	}
+}
+
+func TestMasterService_Watchdog_LongRun_PreservesSessionID(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewMasterSessionRepo(db)
+	_ = repo.Upsert(context.Background(), "uuid-2", 88888)
+
+	svc := newTestMasterService(t, repo, &fakeMasterSession{})
+	// Simulate process that lived > 2s by sleeping inside the wait fn
+	svc.waitForProcessExit = func(_ int) { time.Sleep(2100 * time.Millisecond) }
+
+	done := make(chan struct{})
+	go func() {
+		svc.watchdog("uuid-2", 88888)
+		close(done)
+	}()
+	<-done
+
+	row, err := repo.Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get after long-run watchdog: %v", err)
+	}
+	if row.ClaudeSessionID != "uuid-2" {
+		t.Errorf("session_id=%q, want uuid-2 (preserved)", row.ClaudeSessionID)
+	}
+	if row.PID != nil {
+		t.Errorf("PID=%v, want nil", row.PID)
 	}
 }

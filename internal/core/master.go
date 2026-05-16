@@ -50,14 +50,25 @@ type MasterSession struct {
 }
 
 type MasterService struct {
-	mu           sync.Mutex
-	repo         *store.MasterSessionRepo
-	session      masterSession
-	mcpURL       func() string // lazy: localSrv.BaseURL() may not be ready at construction
-	mcpToken     string        // bearer token value
-	masterCwd    string
-	bus          events.Emitter
-	sandboxCheck func() error // injectable for tests
+	mu                 sync.Mutex
+	repo               *store.MasterSessionRepo
+	session            masterSession
+	mcpURL             func() string // lazy: localSrv.BaseURL() may not be ready at construction
+	mcpToken           string        // bearer token value
+	masterCwd          string
+	bus                events.Emitter
+	sandboxCheck       func() error      // injectable for tests
+	waitForProcessExit func(pid int)     // injectable for tests
+}
+
+// defaultWaitForProcessExit polls syscall.Kill(pid, 0) every 200ms until ESRCH.
+func defaultWaitForProcessExit(pid int) {
+	for {
+		if err := syscall.Kill(pid, 0); err != nil {
+			return // process gone
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func NewMasterService(
@@ -69,13 +80,14 @@ func NewMasterService(
 	bus events.Emitter,
 ) *MasterService {
 	return &MasterService{
-		repo:         repo,
-		session:      session,
-		mcpURL:       mcpURL,
-		mcpToken:     mcpToken,
-		masterCwd:    masterCwd,
-		bus:          bus,
-		sandboxCheck: sandbox.SandboxAvailable,
+		repo:               repo,
+		session:            session,
+		mcpURL:             mcpURL,
+		mcpToken:           mcpToken,
+		masterCwd:          masterCwd,
+		bus:                bus,
+		sandboxCheck:       sandbox.SandboxAvailable,
+		waitForProcessExit: defaultWaitForProcessExit,
 	}
 }
 
@@ -179,9 +191,24 @@ func portFromURL(rawURL string) int {
 
 // watchdog stub — real impl in Stage 6.
 func (s *MasterService) watchdog(sessionID string, pid int) {
-	// no-op placeholder
-	_ = sessionID
-	_ = pid
+	start := time.Now()
+	s.waitForProcessExit(pid)
+	elapsed := time.Since(start)
+
+	early := elapsed < 2*time.Second
+
+	ctx := context.Background()
+	if early {
+		_ = s.repo.Delete(ctx)
+	} else {
+		_ = s.repo.ClearPID(ctx)
+	}
+
+	s.bus.Emit("master.exit", map[string]any{
+		"session_id":  sessionID,
+		"early_exit":  early,
+		"elapsed_ms":  elapsed.Milliseconds(),
+	})
 }
 
 // processAlive returns true if a Unix process with the given PID exists and
