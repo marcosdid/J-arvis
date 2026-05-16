@@ -106,14 +106,30 @@ func main() {
 		runtime, tokenRegistry, localSrv, catalogRoot, lazyBus, claudeHome,
 	)
 
-	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask,
-		nil, // TODO Stage 9: runsSvc.CleanupForTask
+	dockerOps := sandbox.NewSubprocessDockerOps()
+	portAlloc := core.NewPortAllocator()
+	runsRepo := store.NewRunsRepo(db)
+	runsSvc := core.NewRunsService(
+		runsRepo, dockerOps, portAlloc,
+		tasksRepo, worktreesRepo, projectsRepo,
+		lazyBus,
+	)
+
+	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus,
+		worktreesSvc.CleanupForTask,
+		sessionsSvc.CleanupForTask,
+		runsSvc.CleanupForTask,
 	)
 
 	mcpToken := mcp.NewBearerToken()
 	mcpSrv := mcp.NewServer(tasksSvc, projectsSvc, catalogRoot, mcpToken)
 	if err := localSrv.Mount("/api/mcp", mcpSrv.Handler()); err != nil {
 		log.Fatalf("mount mcp: %v", err)
+	}
+
+	runsAPI := api.NewRunsAPI(runsSvc, func() string { return localSrv.BaseURL() })
+	if err := localSrv.Mount("/api/runs/", runsAPI.LogsHandler()); err != nil {
+		log.Fatalf("mount runs logs: %v", err)
 	}
 
 	sandboxOK := true
@@ -124,6 +140,22 @@ func main() {
 		sandboxReason = "local http server failed to bind: " + err.Error()
 	} else {
 		log.Printf("local http listening on 127.0.0.1:%d", port)
+		// Boot-time orphan cleanup (best-effort) — kills containers/networks
+		// that survived a previous crash. Skipped silently if docker is gone.
+		if err := runsSvc.CleanupOrphans(context.Background()); err != nil {
+			log.Printf("orphan run cleanup: %v", err)
+		}
+		// Defensive port reserve from any surviving rows so we don't hand the
+		// same host port to a new run while an old one is still bound.
+		if active, err := runsRepo.ListActive(context.Background()); err == nil {
+			for _, run := range active {
+				for _, port := range run.Ports() {
+					portAlloc.Reserve(port)
+				}
+			}
+		} else {
+			log.Printf("list active runs: %v", err)
+		}
 	}
 	if err := sandbox.SandboxAvailable(); err != nil {
 		sandboxOK = false
@@ -187,6 +219,7 @@ func main() {
 			worktreesAPI,
 			sessionsAPI,
 			catalogAPI,
+			runsAPI,
 		},
 		// mcpSrv is mounted on localSrv directly — not bound to Wails (it's
 		// consumed by master-claude over HTTP, not by the UI).

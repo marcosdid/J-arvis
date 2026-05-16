@@ -159,7 +159,7 @@ func (s *stubWorktreesRepo) ListByTask(_ context.Context, _ string) ([]store.Wor
 
 type stubProjectsRepo struct{ proj *store.Project }
 
-func (s *stubProjectsRepo) GetByID(_ context.Context, _ string) (*store.Project, error) {
+func (s *stubProjectsRepo) Get(_ context.Context, _ string) (*store.Project, error) {
 	return s.proj, nil
 }
 

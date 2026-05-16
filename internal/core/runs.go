@@ -36,7 +36,7 @@ type runsWorktreesRepo interface {
 }
 
 type runsProjectsRepo interface {
-	GetByID(ctx context.Context, id string) (*store.Project, error)
+	Get(ctx context.Context, id string) (*store.Project, error)
 }
 
 type RunsService struct {
@@ -141,7 +141,7 @@ func (s *RunsService) DeriveRunCWD(ctx context.Context, taskID string) (string, 
 		}
 		return wts[0].Path, nil
 	}
-	proj, err := s.projects.GetByID(ctx, task.ProjectID)
+	proj, err := s.projects.Get(ctx, task.ProjectID)
 	if err != nil {
 		return "", err
 	}
