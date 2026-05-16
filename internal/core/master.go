@@ -57,8 +57,8 @@ type MasterService struct {
 	mcpToken           string        // bearer token value
 	masterCwd          string
 	bus                events.Emitter
-	sandboxCheck       func() error      // injectable for tests
-	waitForProcessExit func(pid int)     // injectable for tests
+	sandboxCheck       func() error  // injectable for tests
+	waitForProcessExit func(pid int) // injectable for tests
 }
 
 // defaultWaitForProcessExit polls syscall.Kill(pid, 0) every 200ms until ESRCH.
@@ -205,9 +205,9 @@ func (s *MasterService) watchdog(sessionID string, pid int) {
 	}
 
 	s.bus.Emit("master.exit", map[string]any{
-		"session_id":  sessionID,
-		"early_exit":  early,
-		"elapsed_ms":  elapsed.Milliseconds(),
+		"session_id": sessionID,
+		"early_exit": early,
+		"elapsed_ms": elapsed.Milliseconds(),
 	})
 }
 

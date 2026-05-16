@@ -13,10 +13,10 @@ func NewCatalogAPI(root *catalog.Catalog) *CatalogAPI {
 }
 
 type CatalogView struct {
-	Version                   string                       `json:"version"`
-	FallbackPermissionProfile string                       `json:"fallback_permission_profile"`
-	PermissionProfiles        []catalog.PermissionProfile  `json:"permission_profiles"`
-	Templates                 []catalog.Template           `json:"templates"`
+	Version                   string                      `json:"version"`
+	FallbackPermissionProfile string                      `json:"fallback_permission_profile"`
+	PermissionProfiles        []catalog.PermissionProfile `json:"permission_profiles"`
+	Templates                 []catalog.Template          `json:"templates"`
 }
 
 func (a *CatalogAPI) Get() CatalogView {
