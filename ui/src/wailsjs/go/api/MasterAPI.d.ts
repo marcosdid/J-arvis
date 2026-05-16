@@ -6,8 +6,8 @@ export function Resize(arg1:number,arg2:number):Promise<void>;
 
 export function Send(arg1:string):Promise<void>;
 
-export function Start():Promise<api.MasterStatus>;
+export function Start():Promise<api.MasterStatusView>;
 
-export function Status():Promise<api.MasterStatus>;
+export function Status():Promise<api.MasterStatusView>;
 
 export function Stop():Promise<void>;

@@ -74,18 +74,20 @@ export namespace api {
 	        this.sandbox_reason = source["sandbox_reason"];
 	    }
 	}
-	export class MasterStatus {
+	export class MasterStatusView {
 	    running: boolean;
 	    pid: number;
+	    session_id: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new MasterStatus(source);
+	        return new MasterStatusView(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.running = source["running"];
 	        this.pid = source["pid"];
+	        this.session_id = source["session_id"];
 	    }
 	}
 	export class PatchTaskInput {
