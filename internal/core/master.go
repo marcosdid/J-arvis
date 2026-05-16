@@ -211,6 +211,45 @@ func (s *MasterService) watchdog(sessionID string, pid int) {
 	})
 }
 
+// Send delegates to the underlying masterSession.
+func (s *MasterService) Send(data string) error {
+	return s.session.Send(data)
+}
+
+// Resize delegates to the underlying masterSession.
+func (s *MasterService) Resize(rows, cols uint16) error {
+	return s.session.Resize(rows, cols)
+}
+
+// SetOnOutput delegates to the underlying masterSession.
+func (s *MasterService) SetOnOutput(fn func(string)) {
+	s.session.SetOnOutput(fn)
+}
+
+// SetOnExit delegates to the underlying masterSession.
+func (s *MasterService) SetOnExit(fn func(error)) {
+	s.session.SetOnExit(fn)
+}
+
+// Status reads the DB row and verifies the PID is live. A stale PID (process
+// died, watchdog hasn't fired yet) reports Running=false.
+func (s *MasterService) Status(ctx context.Context) MasterStatus {
+	row, err := s.repo.Get(ctx)
+	if err != nil {
+		return MasterStatus{Running: false}
+	}
+	running := row.PID != nil && processAlive(*row.PID)
+	pid := 0
+	if running {
+		pid = *row.PID
+	}
+	return MasterStatus{
+		Running:   running,
+		PID:       pid,
+		SessionID: row.ClaudeSessionID,
+	}
+}
+
 // processAlive returns true if a Unix process with the given PID exists and
 // is reachable by the current user. Uses kill(pid, 0) which returns ESRCH
 // when no such process exists.

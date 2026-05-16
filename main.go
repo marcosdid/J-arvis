@@ -130,7 +130,10 @@ func main() {
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
-	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
+	// TEMPORARY (Stage 7 placeholder; Stage 8 wires properly).
+	// api.NewMasterAPI now requires *core.MasterService which is not yet wired.
+	var masterAPI *api.MasterAPI
+	_ = masterAPI
 	healthAPI := api.NewHealthAPI(func() (bool, string) {
 		return sandboxOK, sandboxReason
 	})
