@@ -123,3 +123,34 @@ func newTestMasterService(t *testing.T, repo *store.MasterSessionRepo, fs *fakeM
 	svc.sandboxCheck = func() error { return nil }
 	return svc
 }
+
+func TestMasterService_Stop_ClearsPIDPreservesSessionID(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewMasterSessionRepo(db)
+	fs := &fakeMasterSession{spawnPID: 99999} // non-existent PID
+	svc := newTestMasterService(t, repo, fs)
+	_, _ = svc.Start(context.Background())
+
+	if err := svc.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	row, err := repo.Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get after Stop: %v", err)
+	}
+	if row.PID != nil {
+		t.Errorf("PID=%v, want nil after Stop", row.PID)
+	}
+	if row.ClaudeSessionID == "" {
+		t.Error("ClaudeSessionID cleared by Stop; should be preserved")
+	}
+}
+
+func TestMasterService_Stop_NoRow_NoOp(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewMasterSessionRepo(db)
+	svc := newTestMasterService(t, repo, &fakeMasterSession{})
+	if err := svc.Stop(context.Background()); err != nil {
+		t.Errorf("Stop on empty: %v", err)
+	}
+}

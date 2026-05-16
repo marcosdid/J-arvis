@@ -140,6 +140,26 @@ func (s *MasterService) Start(ctx context.Context) (*MasterSession, error) {
 	return &MasterSession{ClaudeSessionID: sessionID, PID: &pid, StartedAt: now}, nil
 }
 
+func (s *MasterService) Stop(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	row, err := s.repo.Get(ctx)
+	if err != nil {
+		return nil // nothing to stop
+	}
+	if row.PID != nil && processAlive(*row.PID) {
+		_ = syscall.Kill(*row.PID, syscall.SIGTERM)
+	}
+	if err := s.repo.ClearPID(ctx); err != nil {
+		return err
+	}
+	s.bus.Emit("master.status", MasterStatus{
+		Running: false, SessionID: row.ClaudeSessionID,
+	})
+	return nil
+}
+
 func rowToSession(r *store.MasterSession) *MasterSession {
 	return &MasterSession{
 		ClaudeSessionID: r.ClaudeSessionID,
