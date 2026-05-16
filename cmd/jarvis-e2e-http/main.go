@@ -102,8 +102,19 @@ func main() {
 		rt, tokenRegistry, localSrv, catalogRoot, lazyBus, claudeHome,
 	)
 
-	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask,
-		nil, // TODO Stage 9: runsSvc.CleanupForTask
+	dockerOps := sandbox.NewSubprocessDockerOps()
+	portAlloc := core.NewPortAllocator()
+	runsRepo := store.NewRunsRepo(db)
+	runsSvc := core.NewRunsService(
+		runsRepo, dockerOps, portAlloc,
+		tasksRepo, worktreesRepo, projectsRepo,
+		lazyBus,
+	)
+
+	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus,
+		worktreesSvc.CleanupForTask,
+		sessionsSvc.CleanupForTask,
+		runsSvc.CleanupForTask,
 	)
 
 	mcpToken := mcp.NewBearerToken()
@@ -112,12 +123,25 @@ func main() {
 		log.Fatalf("mount mcp: %v", err)
 	}
 
+	runsAPI := api.NewRunsAPI(runsSvc, func() string { return localSrv.BaseURL() })
+	if err := localSrv.Mount("/api/runs/", runsAPI.LogsHandler()); err != nil {
+		log.Fatalf("mount runs logs: %v", err)
+	}
+
 	hookPort, err := localSrv.Start()
 	if err != nil {
 		log.Fatalf("local http: %v", err)
 	}
 	log.Printf("local http listening on 127.0.0.1:%d", hookPort)
 	defer func() { _ = localSrv.Stop() }()
+
+	// Skip orphan cleanup if Docker is unavailable in CI (e.g. set
+	// JARVIS_E2E_NO_DOCKER=1 in the harness).
+	if os.Getenv("JARVIS_E2E_NO_DOCKER") != "1" {
+		if err := runsSvc.CleanupOrphans(context.Background()); err != nil {
+			log.Printf("orphan run cleanup: %v", err)
+		}
+	}
 	tasksAPI := api.NewTasksAPI(tasksSvc)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
