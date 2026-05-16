@@ -29,6 +29,7 @@ import (
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
 	"github.com/marcosdid/jarvis/internal/localhttp"
+	"github.com/marcosdid/jarvis/internal/master"
 	"github.com/marcosdid/jarvis/internal/mcp"
 	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
@@ -119,10 +120,18 @@ func main() {
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
-	// TEMPORARY (Stage 7 placeholder; Stage 8 wires properly).
-	// api.NewMasterAPI now requires *core.MasterService which is not yet wired.
-	var masterAPI *api.MasterAPI
-	_ = masterAPI
+
+	masterRepo := store.NewMasterSessionRepo(db)
+	masterSvc := core.NewMasterService(
+		masterRepo,
+		master.New(),
+		func() string { return localSrv.BaseURL() },
+		mcpToken.Value(),
+		filepath.Join(os.TempDir(), "jarvis-e2e-master"),
+		lazyBus,
+	)
+	masterAPI := api.NewMasterAPI(masterSvc, lazyBus)
+	defer func() { _ = masterSvc.Stop(context.Background()) }()
 
 	srv := api.NewE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI)
 	// Wire the hook proxy + token reverse-lookup for /e2e/sessions/simulate_hook
