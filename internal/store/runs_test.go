@@ -116,6 +116,27 @@ func TestRunsRepo_UpdateContainerIDs(t *testing.T) {
 	}
 }
 
+func TestRunsRepo_MarkFailed_SetsStatusAndMessage(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRunsRepo(db)
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+	_ = repo.Insert(context.Background(), Run{ID: "run-1", TaskID: "t1", Status: "ready", Cwd: "/x", StartedAt: time.Now()})
+
+	if err := repo.MarkFailed(context.Background(), "run-1", "network timeout"); err != nil {
+		t.Fatalf("MarkFailed: %v", err)
+	}
+	got, _ := repo.GetByID(context.Background(), "run-1")
+	if got.Status != "failed" {
+		t.Errorf("status=%q, want failed", got.Status)
+	}
+	if got.ErrorMessage != "network timeout" {
+		t.Errorf("ErrorMessage=%q, want 'network timeout'", got.ErrorMessage)
+	}
+	if got.EndedAt == nil {
+		t.Error("EndedAt nil after MarkFailed")
+	}
+}
+
 // seedProjectAndTaskForRuns inserts project + task FK row.
 func seedProjectAndTaskForRuns(t *testing.T, db *sql.DB, projectID, taskID string) {
 	t.Helper()
