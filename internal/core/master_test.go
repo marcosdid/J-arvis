@@ -206,3 +206,37 @@ func TestMasterService_Watchdog_LongRun_PreservesSessionID(t *testing.T) {
 		t.Errorf("PID=%v, want nil", row.PID)
 	}
 }
+
+// TestMasterService_RoundTrip_PreservesSessionID exercises Start → Stop →
+// Start on a real DB with a fake session. The second Start should reuse
+// the session_id persisted by the first.
+func TestMasterService_RoundTrip_PreservesSessionID(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewMasterSessionRepo(db)
+	fs := &fakeMasterSession{spawnPID: 12345}
+	svc := newTestMasterService(t, repo, fs)
+
+	ctx := context.Background()
+	first, err := svc.Start(ctx)
+	if err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+
+	if err := svc.Stop(ctx); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// Reset fake to simulate fresh subprocess
+	fs.spawnedAt = ""
+	fs.spawnPID = 54321
+
+	second, err := svc.Start(ctx)
+	if err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+
+	if second.ClaudeSessionID != first.ClaudeSessionID {
+		t.Errorf("second session_id=%q, want %q (reused)",
+			second.ClaudeSessionID, first.ClaudeSessionID)
+	}
+}
