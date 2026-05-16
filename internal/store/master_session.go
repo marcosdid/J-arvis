@@ -55,3 +55,22 @@ func (r *MasterSessionRepo) Upsert(ctx context.Context, claudeSessionID string, 
 	}
 	return nil
 }
+
+func (r *MasterSessionRepo) ClearPID(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE master_session SET pid = NULL, last_active = ? WHERE id = 'singleton'`,
+		time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("clear master_session pid: %w", err)
+	}
+	return nil
+}
+
+func (r *MasterSessionRepo) Delete(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM master_session WHERE id = 'singleton'`)
+	if err != nil {
+		return fmt.Errorf("delete master_session: %w", err)
+	}
+	return nil
+}
