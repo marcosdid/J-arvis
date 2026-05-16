@@ -26,6 +26,8 @@ export function MasterHeader({
   onRestart,
   onMinimize,
 }: MasterHeaderProps) {
+  const displaySessionId = sessionId.length > 8 ? `${sessionId.slice(0, 8)}…` : sessionId;
+
   return (
     <div className="bg-bg-deep border-b border-border-subtle px-3 py-2 flex flex-col gap-1">
       <div className="flex items-center justify-between">
@@ -35,7 +37,7 @@ export function MasterHeader({
             aria-label={`status-${status}`}
             className={`inline-block w-2 h-2 rounded-full ${dotColor[status]}`}
           />
-          <span className="text-text-emphasis text-xs font-mono">{sessionId}</span>
+          <span className="text-text-emphasis text-xs font-mono">{displaySessionId}</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -69,7 +71,7 @@ export function MasterHeader({
         </div>
       </div>
       <span className="text-text-faint text-xs font-mono">
-        claude --resume {sessionId} · 80×24 · pid {pid ?? '—'}
+        claude --resume {displaySessionId} · 80×24 · pid {pid ?? '—'}
       </span>
     </div>
   );

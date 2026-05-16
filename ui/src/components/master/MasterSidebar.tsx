@@ -12,14 +12,13 @@ import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 type SystemMsg = { level: 'warn' | 'error'; message: string } | null;
 
-const SESSION_ID = 'master_001';
-
 export function MasterSidebar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const [systemMsg, setSystemMsg] = useState<SystemMsg>(null);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [pid, setPid] = useState<number | null>(null);
+  const [sessionId, setSessionId] = useState<string>('');
 
   useEffect(() => {
     const container = containerRef.current;
@@ -60,7 +59,8 @@ export function MasterSidebar() {
       }
     });
     EventsOn('master.status', (s: unknown) => {
-      const obj = s as { running?: boolean; pid?: number };
+      const obj = s as { running?: boolean; pid?: number; session_id?: string };
+      if (obj?.session_id) setSessionId(obj.session_id);
       if (obj?.running) {
         setStatus('connected');
         setPid(typeof obj.pid === 'number' ? obj.pid : null);
@@ -70,16 +70,40 @@ export function MasterSidebar() {
       }
     });
     EventsOn('master.exit', (payload: unknown) => {
-      const obj = payload as { error?: string };
-      if (obj?.error) {
-        setSystemMsg({ level: 'error', message: `claude exit: ${obj.error}` });
+      const obj = payload as {
+        early_exit?: boolean;
+        elapsed_ms?: number;
+        error?: string;
+        session_id?: string;
+      };
+      if (obj?.early_exit) {
+        setSystemMsg({
+          level: 'warn',
+          message: `master crashed after ${obj.elapsed_ms ?? '?'}ms — recovering...`,
+        });
+        MasterAPI.Start()
+          .then((st) => {
+            setSessionId(st.session_id);
+            setStatus('connected');
+            setPid(st.pid);
+            term.write('\x1b[2m-- recovered with new session --\x1b[0m\r\n');
+          })
+          .catch((e: unknown) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            setSystemMsg({ level: 'error', message: `recovery failed: ${msg}` });
+          });
+      } else {
+        const ms = obj?.elapsed_ms !== undefined ? `${obj.elapsed_ms}ms` : '?';
+        const err = obj?.error ? `: ${obj.error}` : '';
+        setSystemMsg({ level: 'error', message: `master exited (${ms})${err}` });
+        setStatus('disconnected');
+        setPid(null);
       }
-      setStatus('disconnected');
-      setPid(null);
     });
 
     MasterAPI.Start()
       .then((st) => {
+        setSessionId(st.session_id);
         setStatus(st.running ? 'connected' : 'disconnected');
         setPid(st.running ? st.pid : null);
         if (st.running) {
@@ -118,14 +142,14 @@ export function MasterSidebar() {
   }, []);
 
   const handleCopyId = useCallback(() => {
-    navigator.clipboard?.writeText(SESSION_ID).catch(() => undefined);
-  }, []);
+    navigator.clipboard?.writeText(sessionId).catch(() => undefined);
+  }, [sessionId]);
 
   return (
     <aside className="flex flex-col h-full bg-bg-void border-l border-border-subtle" aria-label="master-session">
       <MasterHeader
         pid={pid}
-        sessionId={SESSION_ID}
+        sessionId={sessionId}
         status={status}
         onClear={handleClear}
         onCopyId={handleCopyId}
