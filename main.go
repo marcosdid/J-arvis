@@ -106,7 +106,9 @@ func main() {
 		runtime, tokenRegistry, localSrv, catalogRoot, lazyBus, claudeHome,
 	)
 
-	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
+	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask,
+		nil, // TODO Stage 9: runsSvc.CleanupForTask
+	)
 
 	mcpToken := mcp.NewBearerToken()
 	mcpSrv := mcp.NewServer(tasksSvc, projectsSvc, catalogRoot, mcpToken)

@@ -19,7 +19,7 @@ var testCatalog = catalog.MustLoad()
 func newSvc(repo core.TasksRepoInterface, bus events.Emitter,
 	wt core.TasksWorktreeCleanupFn, sess core.TasksSessionCleanupFn,
 ) *core.TasksService {
-	return core.NewTasksService(repo, testCatalog, bus, wt, sess)
+	return core.NewTasksService(repo, testCatalog, bus, wt, sess, nil)
 }
 
 type fakeTasksRepo struct {
@@ -377,5 +377,25 @@ func TestTasksAPI_SessionCleanup_ErrorDoesNotPropagate(t *testing.T) {
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	if err := api.Discard(created.ID); err != nil {
 		t.Errorf("Discard should swallow session cleanup err, got %v", err)
+	}
+}
+
+func TestTasksService_TerminalState_CallsAllThreeCleanups(t *testing.T) {
+	bus := &events.FakeEmitter{}
+	repo := newFakeRepo()
+	wtCalls, sessCalls, runCalls := 0, 0, 0
+	wt := func(_ context.Context, _ string) error { wtCalls++; return nil }
+	sess := func(_ context.Context, _ string) error { sessCalls++; return nil }
+	runs := func(_ context.Context, _ string) error { runCalls++; return nil }
+	svc := core.NewTasksService(repo, testCatalog, bus, wt, sess, runs)
+	api := NewTasksAPI(svc)
+	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
+	repo.items[created.ID].State = "review"
+	done := "done"
+	if _, err := api.Patch(created.ID, PatchTaskInput{State: &done}); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+	if wtCalls != 1 || sessCalls != 1 || runCalls != 1 {
+		t.Errorf("wt=%d sess=%d runs=%d, want 1/1/1", wtCalls, sessCalls, runCalls)
 	}
 }

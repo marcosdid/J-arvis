@@ -34,7 +34,7 @@ func TestMCP_EndToEnd_CreateThenGet(t *testing.T) {
 
 	cat := catalog.MustLoad()
 	projectsSvc := core.NewProjectsService(projectsRepo, store.NewRepositoriesRepo(db), tasksRepo, bus)
-	tasksSvc := core.NewTasksService(tasksRepo, cat, bus, nil, nil)
+	tasksSvc := core.NewTasksService(tasksRepo, cat, bus, nil, nil, nil)
 
 	// 3. Seed a project (MCP create_task needs a real project_id)
 	seedProjectAndTask(t, db, "proj-e2e", "task-seed")
@@ -185,7 +185,7 @@ func TestMCP_EndToEnd_MultipleTools(t *testing.T) {
 
 	cat := catalog.MustLoad()
 	projectsSvc := core.NewProjectsService(projectsRepo, store.NewRepositoriesRepo(db), tasksRepo, bus)
-	tasksSvc := core.NewTasksService(tasksRepo, cat, bus, nil, nil)
+	tasksSvc := core.NewTasksService(tasksRepo, cat, bus, nil, nil, nil)
 
 	// Seed two projects
 	seedProjectAndTask(t, db, "proj-a", "task-a")

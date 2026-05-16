@@ -23,6 +23,7 @@ type TasksRepoInterface interface {
 
 type TasksWorktreeCleanupFn func(ctx context.Context, taskID string) error
 type TasksSessionCleanupFn func(ctx context.Context, taskID string) error
+type TasksRunsCleanupFn func(ctx context.Context, taskID string) error
 
 type CreateTaskInput struct {
 	ProjectID   string  `json:"project_id"`
@@ -45,12 +46,14 @@ type TasksService struct {
 	bus             events.Emitter
 	worktreeCleanup TasksWorktreeCleanupFn
 	sessionCleanup  TasksSessionCleanupFn
+	runsCleanup     TasksRunsCleanupFn
 }
 
 func NewTasksService(
 	repo TasksRepoInterface, cat *catalog.Catalog, bus events.Emitter,
 	worktreeCleanup TasksWorktreeCleanupFn,
 	sessionCleanup TasksSessionCleanupFn,
+	runsCleanup TasksRunsCleanupFn,
 ) *TasksService {
 	return &TasksService{
 		repo:            repo,
@@ -58,6 +61,7 @@ func NewTasksService(
 		bus:             bus,
 		worktreeCleanup: worktreeCleanup,
 		sessionCleanup:  sessionCleanup,
+		runsCleanup:     runsCleanup,
 	}
 }
 
@@ -126,10 +130,12 @@ func (s *TasksService) Patch(ctx context.Context, id string, in PatchTaskInput) 
 		current = updated
 		s.bus.Emit("task.updated", updated)
 		if IsTerminal(*in.State) {
-			// Sessions cleanup runs BEFORE worktree cleanup: subprocess writing
-			// to a worktree that's about to disappear would become a zombie
-			// writing to a non-existent path. Stop first ensures clean shutdown.
+			// Order: sessions → runs → worktrees.
+			// Sessions first: subprocesses may write to worktree files
+			// Runs second: containers may mount volumes from worktree
+			// Worktrees last: files become safely deletable
 			s.runSessionCleanup(ctx, id)
+			s.runRunsCleanup(ctx, id)
 			s.runWorktreeCleanup(ctx, id)
 		}
 	} else if in.Title != nil || in.Description != nil || in.Branch != nil {
@@ -152,6 +158,7 @@ func (s *TasksService) Discard(ctx context.Context, id string) error {
 		s.bus.Emit("task.discarded", map[string]string{"id": id})
 	}
 	s.runSessionCleanup(ctx, id)
+	s.runRunsCleanup(ctx, id)
 	s.runWorktreeCleanup(ctx, id)
 	return nil
 }
@@ -171,5 +178,14 @@ func (s *TasksService) runSessionCleanup(ctx context.Context, taskID string) {
 	}
 	if err := s.sessionCleanup(ctx, taskID); err != nil {
 		log.Printf("session cleanup for task %s: %v", taskID, err)
+	}
+}
+
+func (s *TasksService) runRunsCleanup(ctx context.Context, taskID string) {
+	if s.runsCleanup == nil {
+		return
+	}
+	if err := s.runsCleanup(ctx, taskID); err != nil {
+		log.Printf("runs cleanup for task %s: %v", taskID, err)
 	}
 }

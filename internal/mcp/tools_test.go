@@ -107,7 +107,7 @@ func TestTaskListAndGet(t *testing.T) {
 	ctx := context.Background()
 
 	taskRepo := newFakeTasksRepo()
-	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil)
+	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil, nil)
 
 	tok := NewBearerToken()
 	srv := &Server{
@@ -167,7 +167,7 @@ func TestTaskListFilterByProject(t *testing.T) {
 	ctx := context.Background()
 
 	taskRepo := newFakeTasksRepo()
-	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil)
+	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil, nil)
 
 	tok := NewBearerToken()
 	srv := &Server{
@@ -210,7 +210,7 @@ func TestTaskListFilterByState(t *testing.T) {
 	ctx := context.Background()
 
 	taskRepo := newFakeTasksRepo()
-	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil)
+	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil, nil)
 
 	tok := NewBearerToken()
 	srv := &Server{
@@ -253,7 +253,7 @@ func TestGetTaskNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	taskRepo := newFakeTasksRepo()
-	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil)
+	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil, nil)
 
 	tok := NewBearerToken()
 	srv := &Server{
@@ -284,7 +284,7 @@ func TestCreateTask(t *testing.T) {
 	ctx := context.Background()
 
 	taskRepo := newFakeTasksRepo()
-	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil)
+	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil, nil)
 
 	tok := NewBearerToken()
 	srv := &Server{
@@ -331,7 +331,7 @@ func TestCreateTaskUnknownTemplate(t *testing.T) {
 	ctx := context.Background()
 
 	taskRepo := newFakeTasksRepo()
-	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil)
+	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil, nil)
 
 	tok := NewBearerToken()
 	srv := &Server{
@@ -366,7 +366,7 @@ func TestUpdateTask(t *testing.T) {
 	ctx := context.Background()
 
 	taskRepo := newFakeTasksRepo()
-	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil)
+	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil, nil)
 
 	tok := NewBearerToken()
 	srv := &Server{
@@ -411,7 +411,7 @@ func TestDiscardTask(t *testing.T) {
 	ctx := context.Background()
 
 	taskRepo := newFakeTasksRepo()
-	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil)
+	taskSvc := core.NewTasksService(taskRepo, testCatalog, &events.LazyEmitter{}, nil, nil, nil)
 
 	tok := NewBearerToken()
 	srv := &Server{
