@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"os"
@@ -223,5 +224,162 @@ services:
 	}
 	if len(docker.containerStarts) != 1 {
 		t.Errorf("container start calls=%d", len(docker.containerStarts))
+	}
+}
+
+// seedProjectAndTaskForRuns seeds the database with project and task rows
+// so that run_instances FK to tasks resolves properly.
+func seedProjectAndTaskForRuns(t *testing.T, db *sql.DB, projectID, taskID string) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := db.Exec(
+		`INSERT INTO projects(id, name, path, created_at) VALUES (?, ?, ?, ?)`,
+		projectID, projectID, "/tmp/"+projectID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO tasks(id, project_id, title, state, created_at, updated_at) VALUES (?, ?, ?, 'in_progress', ?, ?)`,
+		taskID, projectID, "tt", now, now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartRun_BuildFails_RollsBack(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, ".orchestrator"), 0o755)
+	manifest := `version: "1"
+services:
+  web:
+    build: ./web
+    port: 8080
+`
+	_ = os.WriteFile(filepath.Join(dir, ".orchestrator", "run.yml"), []byte(manifest), 0o644)
+
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	allocator := NewPortAllocator()
+	docker := newFakeDocker()
+	docker.buildErr = errors.New("docker build boom")
+
+	branch := "main"
+	task := &store.Task{ID: "t1", ProjectID: "p1", State: "in_progress", Branch: &branch}
+	wts := []store.Worktree{{ID: "w1", TaskID: stringPtr("t1"), Path: dir}}
+	proj := &store.Project{ID: "p1", Path: "/projects/p1"}
+
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+
+	svc := NewRunsService(repo, docker, allocator,
+		&stubTasksRepo{task: task},
+		&stubWorktreesRepo{wts: wts},
+		&stubProjectsRepo{proj: proj},
+		&events.FakeEmitter{})
+	svc.dockerCheck = func() error { return nil }
+
+	_, err := svc.StartRun(context.Background(), "t1")
+	if err == nil {
+		t.Fatal("StartRun: nil err, want build failure")
+	}
+	// Port released
+	if _, err := allocator.Allocate(); err != nil {
+		t.Errorf("port not released after rollback: %v", err)
+	}
+	// No active runs
+	rows, _ := repo.ListActive(context.Background())
+	if len(rows) != 0 {
+		t.Errorf("active runs after rollback: %d, want 0", len(rows))
+	}
+	// No containers started
+	if len(docker.containerStarts) != 0 {
+		t.Errorf("containers started despite build failure: %d", len(docker.containerStarts))
+	}
+}
+
+func TestStartRun_HealthcheckTimeout_RollsBack(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, ".orchestrator"), 0o755)
+	manifest := `version: "1"
+services:
+  web:
+    image: nginx
+    port: 80
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 10ms
+      retries: 2
+`
+	_ = os.WriteFile(filepath.Join(dir, ".orchestrator", "run.yml"), []byte(manifest), 0o644)
+
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	allocator := NewPortAllocator()
+	docker := newFakeDocker()
+	docker.healthStatus = "starting" // never becomes healthy
+
+	branch := "main"
+	task := &store.Task{ID: "t1", ProjectID: "p1", State: "in_progress", Branch: &branch}
+	wts := []store.Worktree{{ID: "w1", TaskID: stringPtr("t1"), Path: dir}}
+	proj := &store.Project{ID: "p1", Path: "/projects/p1"}
+
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+
+	svc := NewRunsService(repo, docker, allocator,
+		&stubTasksRepo{task: task},
+		&stubWorktreesRepo{wts: wts},
+		&stubProjectsRepo{proj: proj},
+		&events.FakeEmitter{})
+	svc.dockerCheck = func() error { return nil }
+
+	_, err := svc.StartRun(context.Background(), "t1")
+	if err == nil {
+		t.Fatal("StartRun: nil err, want healthcheck timeout")
+	}
+	if len(docker.stops) != 1 || len(docker.rms) != 1 {
+		t.Errorf("expected 1 stop + 1 rm, got %d/%d", len(docker.stops), len(docker.rms))
+	}
+	if len(docker.netRmCalls) != 1 {
+		t.Errorf("expected 1 network rm, got %d", len(docker.netRmCalls))
+	}
+}
+
+func TestStartRun_SeedFails_RollsBack(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, ".orchestrator"), 0o755)
+	manifest := `version: "1"
+services:
+  db:
+    image: postgres:15
+    port: 5432
+    seed:
+      command: ["psql", "-c", "select 1"]
+      timeout: 5s
+`
+	_ = os.WriteFile(filepath.Join(dir, ".orchestrator", "run.yml"), []byte(manifest), 0o644)
+
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	allocator := NewPortAllocator()
+	docker := newFakeDocker()
+	docker.runInContainerErr = errors.New("seed boom")
+
+	branch := "main"
+	task := &store.Task{ID: "t1", ProjectID: "p1", State: "in_progress", Branch: &branch}
+	wts := []store.Worktree{{ID: "w1", TaskID: stringPtr("t1"), Path: dir}}
+	proj := &store.Project{ID: "p1", Path: "/projects/p1"}
+
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+
+	svc := NewRunsService(repo, docker, allocator,
+		&stubTasksRepo{task: task},
+		&stubWorktreesRepo{wts: wts},
+		&stubProjectsRepo{proj: proj},
+		&events.FakeEmitter{})
+	svc.dockerCheck = func() error { return nil }
+
+	_, err := svc.StartRun(context.Background(), "t1")
+	if err == nil {
+		t.Fatal("StartRun: nil err, want seed failure")
+	}
+	if len(docker.stops) == 0 {
+		t.Error("rollback should have stopped container after seed failure")
 	}
 }
