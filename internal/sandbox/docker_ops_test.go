@@ -33,3 +33,80 @@ func TestFakeDockerSatisfiesInterface(t *testing.T) {
 		t.Errorf("calls=%v", f.calls)
 	}
 }
+
+// argvCapture replaces the exec seam so tests can assert the exact argv.
+type argvCapture struct {
+	calls [][]string
+}
+
+func (a *argvCapture) cmd(_ context.Context, name string, args ...string) (string, error) {
+	a.calls = append(a.calls, append([]string{name}, args...))
+	return "fake-stdout", nil
+}
+
+func equalSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestSubprocessDockerOps_Build_ArgvShape(t *testing.T) {
+	cap := &argvCapture{}
+	s := &SubprocessDockerOps{commandFn: cap.cmd}
+	if err := s.Build(context.Background(), "/tmp/proj", "myimg:dev"); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(cap.calls) != 1 {
+		t.Fatalf("calls=%d, want 1", len(cap.calls))
+	}
+	want := []string{"docker", "build", "-t", "myimg:dev", "/tmp/proj"}
+	if !equalSlices(cap.calls[0], want) {
+		t.Errorf("argv=%v, want %v", cap.calls[0], want)
+	}
+}
+
+func TestSubprocessDockerOps_NetworkCreate_ArgvShape(t *testing.T) {
+	cap := &argvCapture{}
+	s := &SubprocessDockerOps{commandFn: cap.cmd}
+	_ = s.NetworkCreate(context.Background(), "jarvis-run-abc12345")
+	want := []string{"docker", "network", "create", "--driver", "bridge", "jarvis-run-abc12345"}
+	if !equalSlices(cap.calls[0], want) {
+		t.Errorf("argv=%v, want %v", cap.calls[0], want)
+	}
+}
+
+func TestSubprocessDockerOps_NetworkRm_ArgvShape(t *testing.T) {
+	cap := &argvCapture{}
+	s := &SubprocessDockerOps{commandFn: cap.cmd}
+	_ = s.NetworkRm(context.Background(), "jarvis-run-abc12345")
+	want := []string{"docker", "network", "rm", "jarvis-run-abc12345"}
+	if !equalSlices(cap.calls[0], want) {
+		t.Errorf("argv=%v, want %v", cap.calls[0], want)
+	}
+}
+
+func TestSubprocessDockerOps_Stop_ArgvShape(t *testing.T) {
+	cap := &argvCapture{}
+	s := &SubprocessDockerOps{commandFn: cap.cmd}
+	_ = s.Stop(context.Background(), "cid-1")
+	want := []string{"docker", "stop", "--time", "10", "cid-1"}
+	if !equalSlices(cap.calls[0], want) {
+		t.Errorf("argv=%v, want %v", cap.calls[0], want)
+	}
+}
+
+func TestSubprocessDockerOps_Rm_ArgvShape(t *testing.T) {
+	cap := &argvCapture{}
+	s := &SubprocessDockerOps{commandFn: cap.cmd}
+	_ = s.Rm(context.Background(), "cid-1")
+	want := []string{"docker", "rm", "-f", "cid-1"}
+	if !equalSlices(cap.calls[0], want) {
+		t.Errorf("argv=%v, want %v", cap.calls[0], want)
+	}
+}
