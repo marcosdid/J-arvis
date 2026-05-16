@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -385,4 +386,41 @@ func (s *RunsService) rollback(ctx context.Context, run *store.Run, containerIDs
 	}
 	_ = s.repo.MarkFailed(ctx, run.ID, errMsg)
 	s.emitStatus(run, run.Status, "failed")
+}
+
+func (s *RunsService) StopRun(ctx context.Context, runID string) error {
+	run, err := s.repo.GetByID(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if run.EndedAt != nil {
+		return nil // idempotent
+	}
+
+	s.transition(run, "stopping")
+
+	// Parallel container stops
+	var wg sync.WaitGroup
+	for _, cid := range run.ContainerIDs() {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			_ = s.docker.Stop(ctx, id)
+			_ = s.docker.Rm(ctx, id)
+		}(cid)
+	}
+	wg.Wait()
+
+	if run.NetworkName != "" {
+		_ = s.docker.NetworkRm(ctx, run.NetworkName)
+	}
+	for _, port := range run.Ports() {
+		s.allocator.Release(port)
+	}
+
+	if err := s.repo.MarkEnded(ctx, run.ID, "stopped", ""); err != nil {
+		return err
+	}
+	s.emitStatus(run, run.Status, "stopped")
+	return nil
 }

@@ -383,3 +383,68 @@ services:
 		t.Error("rollback should have stopped container after seed failure")
 	}
 }
+
+func TestStopRun_ParallelStops_ClearsResources(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	allocator := NewPortAllocator()
+	docker := newFakeDocker()
+	allocator.Reserve(31000)
+
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+
+	run := store.Run{
+		ID: "run-1", TaskID: "t1", Status: "ready", Cwd: "/x",
+		NetworkName:    "jarvis-run-run-1",
+		PortsJSON:      `{"web":31000}`,
+		ContainersJSON: `{"db":"cid-db","backend":"cid-backend","frontend":"cid-frontend"}`,
+		StartedAt:      time.Now(),
+	}
+	_ = repo.Insert(context.Background(), run)
+
+	svc := NewRunsService(repo, docker, allocator,
+		&stubTasksRepo{}, &stubWorktreesRepo{}, &stubProjectsRepo{},
+		&events.FakeEmitter{})
+
+	if err := svc.StopRun(context.Background(), "run-1"); err != nil {
+		t.Fatalf("StopRun: %v", err)
+	}
+	if len(docker.stops) != 3 {
+		t.Errorf("stops=%d, want 3", len(docker.stops))
+	}
+	if len(docker.rms) != 3 {
+		t.Errorf("rms=%d, want 3", len(docker.rms))
+	}
+	if len(docker.netRmCalls) != 1 {
+		t.Errorf("netRm=%d, want 1", len(docker.netRmCalls))
+	}
+	got, _ := repo.GetByID(context.Background(), "run-1")
+	if got.Status != "stopped" || got.EndedAt == nil {
+		t.Errorf("status=%q EndedAt=%v, want stopped/non-nil", got.Status, got.EndedAt)
+	}
+}
+
+func TestStopRun_Idempotent(t *testing.T) {
+	db := newTestStoreDB(t)
+	repo := store.NewRunsRepo(db)
+	docker := newFakeDocker()
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+
+	run := store.Run{
+		ID: "run-1", TaskID: "t1", Status: "stopped",
+		Cwd: "/x", StartedAt: time.Now(),
+	}
+	_ = repo.Insert(context.Background(), run)
+	_ = repo.MarkEnded(context.Background(), "run-1", "stopped", "")
+
+	svc := NewRunsService(repo, docker, NewPortAllocator(),
+		&stubTasksRepo{}, &stubWorktreesRepo{}, &stubProjectsRepo{},
+		&events.FakeEmitter{})
+
+	if err := svc.StopRun(context.Background(), "run-1"); err != nil {
+		t.Fatalf("StopRun: %v", err)
+	}
+	if len(docker.stops) != 0 {
+		t.Errorf("idempotent StopRun should not invoke docker, got stops=%d", len(docker.stops))
+	}
+}
