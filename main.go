@@ -15,6 +15,7 @@ import (
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
 	"github.com/marcosdid/jarvis/internal/localhttp"
+	"github.com/marcosdid/jarvis/internal/master"
 	"github.com/marcosdid/jarvis/internal/mcp"
 	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
@@ -39,6 +40,13 @@ func dbPath() string {
 	full := filepath.Join(dir, "jarvis")
 	_ = os.MkdirAll(full, 0o755)
 	return filepath.Join(full, "jarvis.db")
+}
+
+func masterCwdDefault() string {
+	if v := os.Getenv("JARVIS_MASTER_CWD"); v != "" {
+		return v
+	}
+	return filepath.Join(os.Getenv("HOME"), ".local", "share", "j-arvis", "master")
 }
 
 func main() {
@@ -114,9 +122,6 @@ func main() {
 		sandboxReason = "local http server failed to bind: " + err.Error()
 	} else {
 		log.Printf("local http listening on 127.0.0.1:%d", port)
-		// mcpToken is consumed in-process by spec #2 (master session writer);
-		// it is intentionally never logged.
-		_ = mcpToken
 	}
 	if err := sandbox.SandboxAvailable(); err != nil {
 		sandboxOK = false
@@ -130,10 +135,17 @@ func main() {
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
-	// TEMPORARY (Stage 7 placeholder; Stage 8 wires properly).
-	// api.NewMasterAPI now requires *core.MasterService which is not yet wired.
-	var masterAPI *api.MasterAPI
-	_ = masterAPI
+
+	masterRepo := store.NewMasterSessionRepo(db)
+	masterSvc := core.NewMasterService(
+		masterRepo,
+		master.New(),
+		func() string { return localSrv.BaseURL() },
+		mcpToken.Value(),
+		masterCwdDefault(),
+		lazyBus,
+	)
+	masterAPI := api.NewMasterAPI(masterSvc, lazyBus)
 	healthAPI := api.NewHealthAPI(func() (bool, string) {
 		return sandboxOK, sandboxReason
 	})
@@ -154,6 +166,12 @@ func main() {
 			realBus.Store(&emitter)
 		},
 		OnShutdown: func(_ context.Context) {
+			// Stop master FIRST — its subprocess writes to .claude/settings.json which
+			// references localSrv's URL. Stopping localSrv first would leave the
+			// master claude process making requests against a closed listener.
+			if err := masterSvc.Stop(context.Background()); err != nil {
+				log.Printf("master shutdown: %v", err)
+			}
 			if err := localSrv.Stop(); err != nil {
 				log.Printf("local http shutdown: %v", err)
 			}

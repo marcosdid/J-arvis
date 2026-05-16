@@ -147,6 +147,14 @@ func (s *Session) PID() int {
 	return s.cmd.Process.Pid
 }
 
+func (s *Session) SetOnOutput(fn func(chunk string)) {
+	s.OnOutput = fn
+}
+
+func (s *Session) SetOnExit(fn func(err error)) {
+	s.OnExit = fn
+}
+
 // StartAijail spawns `ai-jail` in a PTY with the given working directory.
 // ai-jail reads the .ai-jail config from cwd to learn what command to run
 // (typically claude with appropriate flags). Used by the master session,
