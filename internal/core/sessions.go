@@ -122,7 +122,7 @@ func (s *SessionsService) Start(ctx context.Context, taskID string) (*store.Sess
 		return nil, fmt.Errorf("write settings: %w", err)
 	}
 	_ = sandbox.EnsureGitignore(cwd)
-	if err := sandbox.WriteAijailConfig(cwd, profile.ClaudeArgs); err != nil {
+	if err := sandbox.WriteAijailConfig(cwd, profile.ClaudeArgs, nil); err != nil {
 		_ = sandbox.RemoveSettings(cwd)
 		s.registry.Revoke(token)
 		return nil, fmt.Errorf("write .ai-jail: %w", err)
