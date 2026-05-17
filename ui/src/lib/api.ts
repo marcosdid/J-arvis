@@ -8,6 +8,7 @@ import * as WorktreesBinding from '../wailsjs/go/api/WorktreesAPI';
 import * as SessionsBinding from '../wailsjs/go/api/SessionsAPI';
 import * as CatalogBinding from '../wailsjs/go/api/CatalogAPI';
 import * as RunsBinding from '../wailsjs/go/api/RunsAPI';
+import * as BootstrapBinding from '../wailsjs/go/api/BootstrapAPI';
 
 export type Repository = {
   id: string;
@@ -76,9 +77,16 @@ export type Run = {
   error_message: string | null;
 };
 
+export type StartRunResult = {
+  run: Run | null;
+  bootstrap: { reason: string } | null;
+};
+
 export type BootstrapSession = {
   session_id: string;
   cwd: string;
+  manifest_path: string;
+  prompt_path: string;
 };
 
 export type PermissionProfile = {
@@ -293,7 +301,13 @@ export const api = {
       })),
     ),
   startTaskSession: (_taskId: string): Promise<Session> => notFound<Session>(),
-  startRun: async (taskId: string): Promise<Run> => toRun(await RunsBinding.Start(taskId)),
+  startRun: async (taskId: string): Promise<StartRunResult> => {
+    const raw = await RunsBinding.Start(taskId);
+    return {
+      run: raw.run != null ? toRun(raw.run) : null,
+      bootstrap: raw.bootstrap != null ? { reason: raw.bootstrap.reason } : null,
+    };
+  },
   getActiveRun: async (taskId: string): Promise<Run> => {
     // Backend returns ErrNotFound when nenhuma run ativa; Wails surfaces isso
     // como Error com mensagem. Hook useRun espera `HTTP 404` prefix pra mapear
@@ -313,7 +327,16 @@ export const api = {
     const base = await getLocalHTTPBase();
     return `${base}/api/runs/${encodeURIComponent(runId)}/logs?service=${encodeURIComponent(service)}`;
   },
-  bootstrapManifest: (_taskId: string): Promise<BootstrapSession> => notFound<BootstrapSession>(),
+  bootstrapManifest: async (taskId: string): Promise<BootstrapSession> => {
+    const v = await BootstrapBinding.Start(taskId);
+    return {
+      session_id: v.session_id,
+      cwd: v.cwd,
+      manifest_path: v.manifest_path,
+      prompt_path: v.prompt_path,
+    };
+  },
+  cancelBootstrap: (taskId: string): Promise<void> => BootstrapBinding.Cancel(taskId),
   getCatalog: async (): Promise<Catalog> => {
     const v = await CatalogBinding.Get();
     return {
