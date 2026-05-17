@@ -75,8 +75,13 @@ export type WsEvent =
       }; at: string;
     }
   | {
-      type: 'bootstrap.proposed'; session_id: ''; task_id: null;
-      payload: { manifest_text: string }; at: string;
+      type: 'bootstrap.proposed'; session_id: ''; task_id: string;
+      payload: {
+        manifest_text: string;
+        valid: boolean;
+        errors: string[];
+      };
+      at: string;
     };
 
 export type WsHandlers = {
