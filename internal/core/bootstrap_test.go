@@ -337,3 +337,42 @@ func TestStart_WorktreeCreationFails(t *testing.T) {
 		t.Errorf("spawn count=%d, want 0", env.runtime.SpawnCount())
 	}
 }
+
+func TestStart_MultiRepoWorktreeUsesParentDir(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	// Add a second repo in the same project + a worktree linked to env.taskID.
+	parent := filepath.Dir(env.worktree)
+	wt2 := filepath.Join(parent, "repo-b")
+	if err := os.MkdirAll(wt2, 0o755); err != nil {
+		t.Fatalf("mkdir wt2: %v", err)
+	}
+
+	task, err := env.tasksRepo.Get(ctx, env.taskID)
+	if err != nil {
+		t.Fatalf("Get task: %v", err)
+	}
+	repos, err := env.reposRepo.CreateBulk(ctx, task.ProjectID, []store.RepoSpecInput{
+		{Name: "repo-b", SubPath: "b"},
+	})
+	if err != nil {
+		t.Fatalf("CreateBulk repo-b: %v", err)
+	}
+	repo2 := repos[0]
+	taskID := env.taskID
+	if _, err := env.wtsRepo.Upsert(ctx, store.WorktreeUpsert{
+		RepositoryID: repo2.ID, Path: wt2, TaskID: &taskID,
+	}); err != nil {
+		t.Fatalf("Upsert wt2: %v", err)
+	}
+
+	started, err := env.svc.Start(ctx, env.taskID)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if started.Cwd != parent {
+		t.Errorf("Cwd=%q, want %q (parent of wts[0])", started.Cwd, parent)
+	}
+}
