@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/google/uuid"
 
 	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/events"
@@ -91,7 +91,8 @@ func (b *BootstrapService) Start(ctx context.Context, taskID string) (*StartedBo
 	if err := sandbox.SandboxAvailable(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSandboxUnavailable, err)
 	}
-	if _, err := sandbox.DetectTerminal(); err != nil {
+	terminal, err := sandbox.DetectTerminal()
+	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSandboxUnavailable, err)
 	}
 
@@ -103,6 +104,13 @@ func (b *BootstrapService) Start(ctx context.Context, taskID string) (*StartedBo
 		return nil, ErrTaskInTerminalState
 	}
 
+	b.mu.Lock()
+	if existing, ok := b.active[taskID]; ok {
+		b.mu.Unlock()
+		return b.viewFromEntry(existing), nil
+	}
+	b.mu.Unlock()
+
 	cwd, err := b.resolveCwd(ctx, taskID, task)
 	if err != nil {
 		return nil, err
@@ -113,7 +121,87 @@ func (b *BootstrapService) Start(ctx context.Context, taskID string) (*StartedBo
 		return nil, ErrManifestAlreadyExists
 	}
 
-	return nil, errors.New("Start: not implemented yet")
+	profile, err := b.catalog.ResolveProfile(b.catalog.FallbackPermissionProfile)
+	if err != nil {
+		return nil, fmt.Errorf("resolve fallback profile: %w", err)
+	}
+
+	orchDir := filepath.Join(cwd, ".orchestrator")
+	if err := os.MkdirAll(orchDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir .orchestrator: %w", err)
+	}
+	promptPath := filepath.Join(orchDir, "BOOTSTRAP_PROMPT.md")
+	if err := os.WriteFile(promptPath, []byte(bootstrapPromptTemplate), 0o644); err != nil {
+		return nil, fmt.Errorf("write BOOTSTRAP_PROMPT.md: %w", err)
+	}
+	if err := sandbox.WriteAijailConfig(cwd, profile.ClaudeArgs, nil); err != nil {
+		_ = os.Remove(promptPath)
+		return nil, fmt.Errorf("write .ai-jail: %w", err)
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		_ = sandbox.RemoveAijailConfig(cwd)
+		_ = os.Remove(promptPath)
+		return nil, fmt.Errorf("new fsnotify watcher: %w", err)
+	}
+	if err := watcher.Add(orchDir); err != nil {
+		_ = watcher.Close()
+		_ = sandbox.RemoveAijailConfig(cwd)
+		_ = os.Remove(promptPath)
+		return nil, fmt.Errorf("watcher.Add: %w", err)
+	}
+
+	handle, err := b.runtime.Spawn(ctx, sandbox.RuntimeSpec{Cwd: cwd, Terminal: terminal})
+	if err != nil {
+		_ = watcher.Close()
+		_ = sandbox.RemoveAijailConfig(cwd)
+		_ = os.Remove(promptPath)
+		return nil, fmt.Errorf("spawn bootstrap claude: %w", err)
+	}
+
+	watcherCtx, cancel := context.WithCancel(context.Background())
+	ready := make(chan struct{})
+	entry := &bootstrapEntry{
+		sessionID:    uuid.NewString(),
+		cwd:          cwd,
+		handle:       handle,
+		watcher:      watcher,
+		cancel:       cancel,
+		watcherReady: ready,
+		startedAt:    time.Now(),
+	}
+
+	b.mu.Lock()
+	// Double-check under lock — caller raced us.
+	if existing, ok := b.active[taskID]; ok {
+		b.mu.Unlock()
+		_ = b.runtime.Kill(ctx, handle)
+		cancel()
+		_ = watcher.Close()
+		_ = sandbox.RemoveAijailConfig(cwd)
+		_ = os.Remove(promptPath)
+		return b.viewFromEntry(existing), nil
+	}
+	b.active[taskID] = entry
+	b.mu.Unlock()
+
+	// Stage 5 wires the watcher goroutine. For now, close ready immediately
+	// so happy-path tests don't block on it.
+	close(ready)
+	_ = watcherCtx // used by Stage 5
+
+	return b.viewFromEntry(entry), nil
+}
+
+func (b *BootstrapService) viewFromEntry(e *bootstrapEntry) *StartedBootstrap {
+	return &StartedBootstrap{
+		SessionID:    e.sessionID,
+		Cwd:          e.cwd,
+		ManifestPath: filepath.Join(e.cwd, ".orchestrator", "run.yml"),
+		PromptPath:   filepath.Join(e.cwd, ".orchestrator", "BOOTSTRAP_PROMPT.md"),
+		WatcherReady: e.watcherReady,
+	}
 }
 
 // resolveCwd mirrors SessionsService (internal/core/sessions.go:87) — if no

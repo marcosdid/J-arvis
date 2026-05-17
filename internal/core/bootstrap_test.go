@@ -225,3 +225,50 @@ func TestStart_ManifestAlreadyExists(t *testing.T) {
 		t.Errorf("spawn called %d times; want 0", env.runtime.SpawnCount())
 	}
 }
+
+func TestStart_HappyPath(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+
+	started, err := env.svc.Start(context.Background(), env.taskID)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if started == nil {
+		t.Fatal("Start returned nil StartedBootstrap")
+	}
+	if started.SessionID == "" {
+		t.Error("SessionID empty")
+	}
+	if started.Cwd != env.worktree {
+		t.Errorf("Cwd=%q, want %q", started.Cwd, env.worktree)
+	}
+	wantManifest := filepath.Join(env.worktree, ".orchestrator", "run.yml")
+	if started.ManifestPath != wantManifest {
+		t.Errorf("ManifestPath=%q, want %q", started.ManifestPath, wantManifest)
+	}
+	wantPrompt := filepath.Join(env.worktree, ".orchestrator", "BOOTSTRAP_PROMPT.md")
+	if started.PromptPath != wantPrompt {
+		t.Errorf("PromptPath=%q, want %q", started.PromptPath, wantPrompt)
+	}
+	if started.WatcherReady == nil {
+		t.Error("WatcherReady nil")
+	}
+
+	// Files on disk
+	promptData, err := os.ReadFile(wantPrompt)
+	if err != nil {
+		t.Fatalf("ReadFile prompt: %v", err)
+	}
+	if !strings.Contains(string(promptData), ".orchestrator/run.yml") {
+		t.Error("prompt missing schema reference")
+	}
+	if _, err := os.Stat(filepath.Join(env.worktree, ".ai-jail")); err != nil {
+		t.Errorf(".ai-jail not written: %v", err)
+	}
+
+	// Spawn called once with correct cwd
+	if got := env.runtime.SpawnCount(); got != 1 {
+		t.Fatalf("spawn count=%d, want 1", got)
+	}
+}
