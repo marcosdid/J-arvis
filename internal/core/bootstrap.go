@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -100,5 +102,38 @@ func (b *BootstrapService) Start(ctx context.Context, taskID string) (*StartedBo
 	if IsTerminal(task.State) {
 		return nil, ErrTaskInTerminalState
 	}
+
+	cwd, err := b.resolveCwd(ctx, taskID, task)
+	if err != nil {
+		return nil, err
+	}
+
+	manifestPath := filepath.Join(cwd, ".orchestrator", "run.yml")
+	if _, err := os.Stat(manifestPath); err == nil {
+		return nil, ErrManifestAlreadyExists
+	}
+
 	return nil, errors.New("Start: not implemented yet")
+}
+
+// resolveCwd mirrors SessionsService (internal/core/sessions.go:87) — if no
+// worktree, create one. Uses the separately-injected b.worktrees repo (same
+// pattern SessionsService uses for store.WorktreesRepo).
+func (b *BootstrapService) resolveCwd(ctx context.Context, taskID string, task *store.Task) (string, error) {
+	wts, err := b.worktrees.ListByTask(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	if len(wts) == 0 {
+		branch := taskBranchOrSlug(task)
+		wts, err = b.wtSvc.CreateForTask(ctx, taskID, branch)
+		if err != nil {
+			return "", fmt.Errorf("create worktrees for task: %w", err)
+		}
+	}
+	cwd := wts[0].Path
+	if len(wts) > 1 {
+		cwd = filepath.Dir(wts[0].Path)
+	}
+	return cwd, nil
 }

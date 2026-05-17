@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -169,9 +170,6 @@ func newBootstrapTestEnv(t *testing.T, opts ...bootstrapEnvOpt) *bootstrapTestEn
 	}
 }
 
-// Suppress "imported and not used" warnings on filepath until Task 3.4 needs it.
-var _ = filepath.Join
-
 func TestStart_TaskInTerminalState(t *testing.T) {
 	env := newBootstrapTestEnv(t)
 	defer env.cleanup()
@@ -200,6 +198,28 @@ func TestStart_SandboxUnavailable(t *testing.T) {
 	_, err := env.svc.Start(context.Background(), env.taskID)
 	if !errors.Is(err, ErrSandboxUnavailable) {
 		t.Fatalf("Start: err=%v, want ErrSandboxUnavailable", err)
+	}
+	if env.runtime.SpawnCount() != 0 {
+		t.Errorf("spawn called %d times; want 0", env.runtime.SpawnCount())
+	}
+}
+
+func TestStart_ManifestAlreadyExists(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+
+	// Pre-create the manifest file.
+	orchDir := filepath.Join(env.worktree, ".orchestrator")
+	if err := os.MkdirAll(orchDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(orchDir, "run.yml"), []byte("version: \"1\"\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_, err := env.svc.Start(context.Background(), env.taskID)
+	if !errors.Is(err, ErrManifestAlreadyExists) {
+		t.Fatalf("Start: err=%v, want ErrManifestAlreadyExists", err)
 	}
 	if env.runtime.SpawnCount() != 0 {
 		t.Errorf("spawn called %d times; want 0", env.runtime.SpawnCount())
