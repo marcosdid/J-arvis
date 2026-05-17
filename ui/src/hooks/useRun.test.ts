@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryKeys } from '../lib/query-keys';
 import {
   useBootstrapManifest,
+  useCancelBootstrap,
   useRun,
   useStartRun,
   useStopRun,
@@ -17,6 +18,7 @@ vi.mock('../lib/api', () => ({
     startRun: vi.fn(),
     stopRun: vi.fn(),
     bootstrapManifest: vi.fn(),
+    cancelBootstrap: vi.fn(),
   },
 }));
 
@@ -74,7 +76,10 @@ describe('useRun', () => {
 
 describe('useStartRun', () => {
   it('calls api.startRun and invalidates run query on success', async () => {
-    (api.startRun as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'r1' });
+    (api.startRun as ReturnType<typeof vi.fn>).mockResolvedValue({
+      run: { id: 'r1', task_id: 't1', status: 'ready' },
+      bootstrap: null,
+    });
     const qc = new QueryClient();
     const spy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useStartRun('t1'), {
@@ -85,6 +90,25 @@ describe('useStartRun', () => {
     });
     expect(api.startRun).toHaveBeenCalledWith('t1');
     expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.run('t1') });
+  });
+
+  it('surfaces bootstrap hint when manifest missing', async () => {
+    (api.startRun as ReturnType<typeof vi.fn>).mockResolvedValue({
+      run: null,
+      bootstrap: { reason: 'manifest_missing' },
+    });
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useStartRun('t1'), {
+      wrapper: makeWrapper(qc),
+    });
+    let resolved: Awaited<ReturnType<typeof result.current.mutateAsync>> | undefined;
+    await act(async () => {
+      resolved = await result.current.mutateAsync();
+    });
+    expect(resolved?.run).toBeNull();
+    expect(resolved?.bootstrap?.reason).toBe('manifest_missing');
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 
@@ -107,8 +131,10 @@ describe('useStopRun', () => {
 describe('useBootstrapManifest', () => {
   it('calls api.bootstrapManifest', async () => {
     (api.bootstrapManifest as ReturnType<typeof vi.fn>).mockResolvedValue({
-      session_id: 'abc',
-      cwd: '/p',
+      session_id: 's-1',
+      cwd: '/tmp/wt',
+      manifest_path: '/tmp/wt/.orchestrator/run.yml',
+      prompt_path: '/tmp/wt/.orchestrator/BOOTSTRAP_PROMPT.md',
     });
     const qc = new QueryClient();
     const { result } = renderHook(() => useBootstrapManifest('t1'), {
@@ -118,5 +144,19 @@ describe('useBootstrapManifest', () => {
       await result.current.mutateAsync();
     });
     expect(api.bootstrapManifest).toHaveBeenCalledWith('t1');
+  });
+});
+
+describe('useCancelBootstrap', () => {
+  it('calls api.cancelBootstrap with the task id', async () => {
+    (api.cancelBootstrap as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    const qc = new QueryClient();
+    const { result } = renderHook(() => useCancelBootstrap('t1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await act(async () => {
+      await result.current.mutateAsync();
+    });
+    expect(api.cancelBootstrap).toHaveBeenCalledWith('t1');
   });
 });
