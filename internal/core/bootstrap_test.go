@@ -463,6 +463,50 @@ func TestCleanupForTask_DelegatesCancel(t *testing.T) {
 	}
 }
 
+func TestDetection_DuplicateEventsIdempotent(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	started, err := env.svc.Start(ctx, env.taskID)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started.WatcherReady
+
+	manifest := []byte(`version: "1"
+services:
+  web:
+    image: nginx
+`)
+	// Write 3 times rapidly. fsnotify may fire 3+ events.
+	for i := 0; i < 3; i++ {
+		if err := os.WriteFile(started.ManifestPath, manifest, 0o644); err != nil {
+			t.Fatalf("write #%d: %v", i, err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Wait briefly to let events drain.
+	time.Sleep(300 * time.Millisecond)
+
+	// Exactly 1 emit valid=true, exactly 1 Kill.
+	emitsValid := 0
+	for _, c := range env.emitter.Snapshot() {
+		if c.Name == "bootstrap.proposed" {
+			if c.Payload.(BootstrapProposedPayload).Valid {
+				emitsValid++
+			}
+		}
+	}
+	if emitsValid != 1 {
+		t.Errorf("emitsValid=%d, want exactly 1", emitsValid)
+	}
+	if env.runtime.KillCount() != 1 {
+		t.Errorf("KillCount=%d, want 1", env.runtime.KillCount())
+	}
+}
+
 func TestDetection_InvalidKeepsWatching(t *testing.T) {
 	env := newBootstrapTestEnv(t)
 	defer env.cleanup()
