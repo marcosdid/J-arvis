@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -85,6 +86,13 @@ func NewBootstrapService(
 }
 
 func (b *BootstrapService) Start(ctx context.Context, taskID string) (*StartedBootstrap, error) {
+	if err := sandbox.SandboxAvailable(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSandboxUnavailable, err)
+	}
+	if _, err := sandbox.DetectTerminal(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSandboxUnavailable, err)
+	}
+
 	task, err := b.tasks.Get(ctx, taskID)
 	if err != nil {
 		return nil, err

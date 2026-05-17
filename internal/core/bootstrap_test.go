@@ -190,3 +190,18 @@ func TestStart_TaskInTerminalState(t *testing.T) {
 		t.Errorf("spawn called %d times; want 0", env.runtime.SpawnCount())
 	}
 }
+
+func TestStart_SandboxUnavailable(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	// Force preflight failure by pointing PATH to an empty dir (ai-jail not found).
+	t.Setenv("PATH", t.TempDir())
+
+	_, err := env.svc.Start(context.Background(), env.taskID)
+	if !errors.Is(err, ErrSandboxUnavailable) {
+		t.Fatalf("Start: err=%v, want ErrSandboxUnavailable", err)
+	}
+	if env.runtime.SpawnCount() != 0 {
+		t.Errorf("spawn called %d times; want 0", env.runtime.SpawnCount())
+	}
+}
