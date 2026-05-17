@@ -7,11 +7,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 
 	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/events"
@@ -187,10 +189,7 @@ func (b *BootstrapService) Start(ctx context.Context, taskID string) (*StartedBo
 	b.active[taskID] = entry
 	b.mu.Unlock()
 
-	// Stage 5 wires the watcher goroutine. For now, close ready immediately
-	// so happy-path tests don't block on it.
-	close(ready)
-	_ = watcherCtx // used by Stage 5
+	go b.watchManifest(watcherCtx, taskID, entry, manifestPath, ready)
 
 	return b.viewFromEntry(entry), nil
 }
@@ -253,4 +252,107 @@ func (b *BootstrapService) resolveCwd(ctx context.Context, taskID string, task *
 		cwd = filepath.Dir(wts[0].Path)
 	}
 	return cwd, nil
+}
+
+// watchManifest is the per-bootstrap goroutine. It consumes fsnotify events
+// for the .orchestrator/ directory and routes Create/Write events on run.yml
+// into handleDetection. Closes ready before its first select iteration so
+// callers (production + tests) can sync on "watcher is now consuming events"
+// before writing anything that might race the first event.
+func (b *BootstrapService) watchManifest(
+	ctx context.Context,
+	taskID string,
+	entry *bootstrapEntry,
+	manifestPath string,
+	ready chan struct{},
+) {
+	defer entry.watcher.Close()
+	close(ready)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-entry.watcher.Events:
+			if !ok {
+				return
+			}
+			if filepath.Base(ev.Name) != "run.yml" {
+				continue
+			}
+			if ev.Op&(fsnotify.Create|fsnotify.Write) == 0 {
+				continue
+			}
+			b.handleDetection(taskID, entry, manifestPath)
+		case err, ok := <-entry.watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("bootstrap watcher (task %s): error: %v", taskID, err)
+		}
+	}
+}
+
+// handleDetection is called by the watcher when run.yml is created or written.
+// It reads + validates the file, then atomically claims ownership under b.mu
+// (deletes the entry only when valid). Cleanup (Kill + Remove) runs unlocked.
+// If the file is invalid, the entry stays alive so the user can keep editing
+// via the still-running Claude session — the next write event will re-trigger.
+//
+// Race semantics: if Cancel fires concurrently and grabs the lock first, the
+// `!ok` branch returns silently — no emit, no double-cleanup.
+func (b *BootstrapService) handleDetection(taskID string, entry *bootstrapEntry, manifestPath string) {
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		log.Printf("bootstrap detection (task %s): read manifest: %v", taskID, err)
+		return
+	}
+
+	valid, errs := b.validateManifestBytes(content)
+
+	var claimed *bootstrapEntry
+	b.mu.Lock()
+	if _, ok := b.active[taskID]; !ok {
+		b.mu.Unlock()
+		return // Cancel took ownership; do nothing
+	}
+	if valid {
+		delete(b.active, taskID)
+		claimed = entry
+	}
+	b.mu.Unlock()
+
+	if claimed != nil {
+		claimed.cancel()
+		if err := b.runtime.Kill(context.Background(), claimed.handle); err != nil {
+			log.Printf("bootstrap detection (task %s): kill pid %d: %v", taskID, claimed.handle.PID, err)
+		}
+		_ = os.Remove(filepath.Join(claimed.cwd, ".orchestrator", "BOOTSTRAP_PROMPT.md"))
+	}
+
+	if errs == nil {
+		errs = []string{}
+	}
+	b.bus.Emit("bootstrap.proposed", BootstrapProposedPayload{
+		TaskID:       taskID,
+		SessionID:    entry.sessionID,
+		ManifestText: string(content),
+		Valid:        valid,
+		Errors:       errs,
+	})
+}
+
+// validateManifestBytes runs the same parse + validate semantics as
+// LoadManifest but from raw bytes. It splits the joined "; " problem list
+// from ManifestSpec.Validate so the UI can render each problem individually.
+func (b *BootstrapService) validateManifestBytes(data []byte) (valid bool, errs []string) {
+	var m ManifestSpec
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		return false, []string{fmt.Sprintf("yaml: %v", err)}
+	}
+	if err := m.Validate(); err != nil {
+		msg := strings.TrimPrefix(err.Error(), "runs: manifest invalid: ")
+		return false, strings.Split(msg, "; ")
+	}
+	return true, nil
 }
