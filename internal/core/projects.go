@@ -81,6 +81,11 @@ func (s *ProjectsService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// Get retrieves a single project by id.
+func (s *ProjectsService) Get(ctx context.Context, id string) (*store.Project, error) {
+	return s.projects.Get(ctx, id)
+}
+
 // List delegates to ProjectsRepo which hydrates repositories via RepositoriesRepo.
 func (s *ProjectsService) List(ctx context.Context) ([]store.Project, error) {
 	return s.projects.List(ctx)

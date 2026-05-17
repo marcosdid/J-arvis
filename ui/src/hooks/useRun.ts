@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { api, type Run } from '../lib/api';
+import { api, type Run, type StartRunResult } from '../lib/api';
 import { queryKeys } from '../lib/query-keys';
 
 /**
@@ -28,9 +28,14 @@ export function useRun(taskId: string) {
 
 export function useStartRun(taskId: string) {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation<StartRunResult, Error>({
     mutationFn: () => api.startRun(taskId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.run(taskId) }),
+    onSuccess: (result) => {
+      if (result.run) {
+        qc.invalidateQueries({ queryKey: queryKeys.run(taskId) });
+      }
+      // bootstrap branch handled by the caller — they inspect result.bootstrap
+    },
   });
 }
 
@@ -44,4 +49,8 @@ export function useStopRun(taskId: string) {
 
 export function useBootstrapManifest(taskId: string) {
   return useMutation({ mutationFn: () => api.bootstrapManifest(taskId) });
+}
+
+export function useCancelBootstrap(taskId: string) {
+  return useMutation({ mutationFn: () => api.cancelBootstrap(taskId) });
 }

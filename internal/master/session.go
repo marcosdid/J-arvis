@@ -146,3 +146,42 @@ func (s *Session) PID() int {
 	}
 	return s.cmd.Process.Pid
 }
+
+func (s *Session) SetOnOutput(fn func(chunk string)) {
+	s.OnOutput = fn
+}
+
+func (s *Session) SetOnExit(fn func(err error)) {
+	s.OnExit = fn
+}
+
+// StartAijail spawns `ai-jail` in a PTY with the given working directory.
+// ai-jail reads the .ai-jail config from cwd to learn what command to run
+// (typically claude with appropriate flags). Used by the master session,
+// where the daemon owns the lifecycle and needs PTY-attached I/O.
+//
+// Distinct from sandbox.Runtime.Spawn (used by task sessions), which spawns
+// detached so the process survives daemon restart. Master is daemon-bound
+// by design.
+func (s *Session) StartAijail(cwd string) (pid int, err error) {
+	if s.running.Load() {
+		return 0, errors.New("session already running")
+	}
+	cmd := exec.Command("ai-jail")
+	cmd.Dir = cwd
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+
+	tty, err := pty.Start(cmd)
+	if err != nil {
+		return 0, fmt.Errorf("pty.Start ai-jail: %w", err)
+	}
+	s.mu.Lock()
+	s.cmd = cmd
+	s.tty = tty
+	s.mu.Unlock()
+	s.running.Store(true)
+
+	go s.readLoop()
+	go s.waitLoop()
+	return cmd.Process.Pid, nil
+}

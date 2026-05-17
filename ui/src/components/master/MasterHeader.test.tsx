@@ -3,16 +3,17 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MasterHeader } from './MasterHeader';
 
 describe('MasterHeader', () => {
-  it('renders the session id as title', () => {
-    render(
-      <MasterHeader pid={null} sessionId="master_001" status="connected" />,
+  it('renders the session id as title (truncated)', () => {
+    const { container } = render(
+      <MasterHeader pid={null} sessionId="sess-abc123def456" status="connected" />,
     );
-    expect(screen.getByText('master_001')).toBeInTheDocument();
+    const sessionSpan = container.querySelector('span.font-mono');
+    expect(sessionSpan?.textContent).toBe('sess-abc…');
   });
 
   it('renders a green dot when status is connected', () => {
     render(
-      <MasterHeader pid={null} sessionId="master_001" status="connected" />,
+      <MasterHeader pid={null} sessionId="sess123" status="connected" />,
     );
     const dot = screen.getByTestId('status-dot');
     expect(dot.className).toContain('bg-accent-primary');
@@ -20,7 +21,7 @@ describe('MasterHeader', () => {
 
   it('renders a yellow dot when status is connecting', () => {
     render(
-      <MasterHeader pid={null} sessionId="master_001" status="connecting" />,
+      <MasterHeader pid={null} sessionId="sess123" status="connecting" />,
     );
     const dot = screen.getByTestId('status-dot');
     expect(dot.className).toContain('bg-semantic-warn');
@@ -28,7 +29,7 @@ describe('MasterHeader', () => {
 
   it('renders a red dot when status is error', () => {
     render(
-      <MasterHeader pid={null} sessionId="master_001" status="error" />,
+      <MasterHeader pid={null} sessionId="sess123" status="error" />,
     );
     const dot = screen.getByTestId('status-dot');
     expect(dot.className).toContain('bg-semantic-error');
@@ -39,7 +40,7 @@ describe('MasterHeader', () => {
     render(
       <MasterHeader
         pid={null}
-        sessionId="master_001"
+        sessionId="sess123"
         status="connected"
         onClear={onClear}
       />,
@@ -53,7 +54,7 @@ describe('MasterHeader', () => {
     render(
       <MasterHeader
         pid={null}
-        sessionId="master_001"
+        sessionId="sess123"
         status="connected"
         onCopyId={onCopyId}
       />,
@@ -67,7 +68,7 @@ describe('MasterHeader', () => {
     render(
       <MasterHeader
         pid={null}
-        sessionId="master_001"
+        sessionId="sess123"
         status="connected"
         onRestart={onRestart}
       />,
@@ -81,7 +82,7 @@ describe('MasterHeader', () => {
     render(
       <MasterHeader
         pid={null}
-        sessionId="master_001"
+        sessionId="sess123"
         status="connected"
         onMinimize={onMinimize}
       />,
@@ -92,14 +93,14 @@ describe('MasterHeader', () => {
 
   it('renders meta line with pid when pid is provided', () => {
     render(
-      <MasterHeader pid={1234} sessionId="master_001" status="connected" />,
+      <MasterHeader pid={1234} sessionId="sess123" status="connected" />,
     );
     expect(screen.getByText(/pid 1234/)).toBeInTheDocument();
   });
 
   it('renders meta line with em-dash when pid is null', () => {
     render(
-      <MasterHeader pid={null} sessionId="master_001" status="connected" />,
+      <MasterHeader pid={null} sessionId="sess123" status="connected" />,
     );
     expect(screen.getByText(/pid —/)).toBeInTheDocument();
   });

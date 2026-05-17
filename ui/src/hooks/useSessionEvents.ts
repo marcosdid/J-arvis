@@ -8,9 +8,17 @@ import { useWsConnectionStore } from '../stores/wsConnection';
 
 export type WorktreeOrphanedToastEmitter = (msg: string) => void;
 
+export type BootstrapProposedEmitter = (payload: {
+  task_id: string;
+  manifest_text: string;
+  valid: boolean;
+  errors: string[];
+}) => void;
+
 export function useSessionEvents(
   queryClient: QueryClient,
   emitToast?: WorktreeOrphanedToastEmitter,
+  emitBootstrapProposed?: BootstrapProposedEmitter,
 ): void {
   useEffect(() => {
     const setWsState = useWsConnectionStore.getState().setState;
@@ -76,13 +84,21 @@ export function useSessionEvents(
             queryKey: queryKeys.run(e.task_id),
           });
         },
-        'bootstrap.proposed': () => {
-          if (emitToast) {
-            emitToast('Manifesto pronto. Tente Run de novo.');
+        'bootstrap.proposed': (e) => {
+          if (emitBootstrapProposed) {
+            emitBootstrapProposed({
+              task_id: e.task_id,
+              manifest_text: e.payload.manifest_text,
+              valid: e.payload.valid,
+              errors: e.payload.errors,
+            });
+          } else if (emitToast) {
+            // Fallback for callers (tests, e2e) that don't wire the modal store
+            emitToast('Manifesto pronto. Abra o painel da tarefa.');
           }
         },
       });
     }, setWsState);
     return () => conn.disconnect();
-  }, [queryClient, emitToast]);
+  }, [queryClient, emitToast, emitBootstrapProposed]);
 }

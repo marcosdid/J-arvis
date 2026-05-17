@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { useRun, useStartRun, useStopRun } from '../hooks/useRun';
+import { useBootstrapProposedStore } from '../stores/bootstrapProposed';
 import { BootstrapModal } from './dialogs/BootstrapModal';
 
 type Props = { taskId: string };
 
 /**
- * F6.j — rodapé do TaskCard mostrando estado da Run.
+ * F6.j / F10.6 — rodapé do TaskCard mostrando estado da Run.
  *
  * Estados:
  * - `useRun.data === null` (sem run ativa): botão `▶ Run`.
@@ -14,21 +15,35 @@ type Props = { taskId: string };
  * - status ready: chips clicáveis (1 por service exposto) + `⏹ Stop`.
  * - status failed: `✗ Falha` + botão pra abrir logs/modal.
  *
- * Quando `startRun` retorna 422 manifest_missing, abre `BootstrapModal`.
+ * Quando `startRun` retorna `{run:null, bootstrap:{reason:'manifest_missing'}}`,
+ * abre `BootstrapModal`. Erros de verdade caem em `onError` (não abrem modal).
  */
 export function RunStatus({ taskId }: Props) {
   const run = useRun(taskId);
   const startRun = useStartRun(taskId);
   const stopRun = useStopRun(taskId);
   const [bootstrapOpen, setBootstrapOpen] = useState(false);
+  const lastProposed = useBootstrapProposedStore((s) => s.last);
+  // Memoized by lastProposed reference. The store wraps each emit in a
+  // fresh object, so this changes identity once per emit (not per render),
+  // which is exactly what BootstrapModal's useEffect on `proposed` expects.
+  const proposedForTask = useMemo(() => {
+    if (!lastProposed || lastProposed.task_id !== taskId) return null;
+    return {
+      manifest_text: lastProposed.manifest_text,
+      valid: lastProposed.valid,
+      errors: lastProposed.errors,
+    };
+  }, [lastProposed, taskId]);
 
   const onStart = () => {
     startRun.mutate(undefined, {
-      onError: (err) => {
-        const msg = (err as Error).message ?? '';
-        if (msg.includes('manifest_missing')) {
+      onSuccess: (result) => {
+        if (result.bootstrap?.reason === 'manifest_missing') {
           setBootstrapOpen(true);
         }
+        // result.run != null → normal flow; the useRun query will refetch
+        // (already wired in useStartRun.onSuccess).
       },
     });
   };
@@ -52,6 +67,7 @@ export function RunStatus({ taskId }: Props) {
           <BootstrapModal
             taskId={taskId}
             onClose={() => setBootstrapOpen(false)}
+            proposed={proposedForTask}
           />
         )}
       </div>

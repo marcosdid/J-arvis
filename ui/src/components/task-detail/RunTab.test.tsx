@@ -113,18 +113,35 @@ describe('RunTab', () => {
     expect(links[0]!.getAttribute('href')).toBe('http://localhost:31100');
   });
 
-  it('opens BootstrapModal when startRun fails with manifest_missing', async () => {
+  it('opens BootstrapModal when startRun returns bootstrap hint', async () => {
     (api.getActiveRun as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('HTTP 404: no active run'),
     );
-    (api.startRun as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('HTTP 422: manifest_missing'),
-    );
+    (api.startRun as ReturnType<typeof vi.fn>).mockResolvedValue({
+      run: null,
+      bootstrap: { reason: 'manifest_missing' },
+    });
     wrap();
     const btn = await screen.findByRole('button', { name: /run-tab-start/ });
     fireEvent.click(btn);
     await waitFor(() =>
       expect(screen.getByRole('dialog', { name: /Manifesto faltando/ })).toBeDefined(),
     );
+  });
+
+  it('does NOT open BootstrapModal on a genuine startRun error', async () => {
+    (api.getActiveRun as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('HTTP 404: no active run'),
+    );
+    (api.startRun as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('HTTP 500: docker daemon dead'),
+    );
+    wrap();
+    const btn = await screen.findByRole('button', { name: /run-tab-start/ });
+    fireEvent.click(btn);
+    await waitFor(() => expect(api.startRun).toHaveBeenCalled());
+    expect(
+      screen.queryByRole('dialog', { name: /Manifesto faltando/ }),
+    ).toBeNull();
   });
 });

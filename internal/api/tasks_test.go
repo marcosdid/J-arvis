@@ -6,9 +6,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marcosdid/jarvis/internal/catalog"
+	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/events"
 	"github.com/marcosdid/jarvis/internal/store"
 )
+
+// testCatalog is the embedded YAML catalog. Loaded once per test binary
+// because catalog.MustLoad parses the same embedded bytes every call.
+var testCatalog = catalog.MustLoad()
+
+func newSvc(repo core.TasksRepoInterface, bus events.Emitter,
+	wt core.TasksWorktreeCleanupFn, sess core.TasksSessionCleanupFn,
+) *core.TasksService {
+	return core.NewTasksService(repo, testCatalog, bus, wt, sess, nil, nil)
+}
 
 type fakeTasksRepo struct {
 	items map[string]*store.Task
@@ -49,7 +61,8 @@ func (f *fakeTasksRepo) Get(_ context.Context, id string) (*store.Task, error) {
 func (f *fakeTasksRepo) Create(_ context.Context, in store.CreateTaskInput) (*store.Task, error) {
 	t := &store.Task{
 		ID: "tsk-" + in.Title, ProjectID: in.ProjectID, Title: in.Title,
-		Description: in.Description, State: in.State, Branch: in.Branch, Template: in.Template,
+		Description: in.Description, State: in.State, Branch: in.Branch,
+		Template: in.Template, PermissionProfile: in.PermissionProfile,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	f.items[t.ID] = t
@@ -66,6 +79,24 @@ func (f *fakeTasksRepo) UpdateState(_ context.Context, id, state string) (*store
 	return t, nil
 }
 
+func (f *fakeTasksRepo) UpdateFields(_ context.Context, id string, title *string, description *string, branch *string) (*store.Task, error) {
+	t, ok := f.items[id]
+	if !ok {
+		return nil, store.ErrTaskNotFound
+	}
+	if title != nil {
+		t.Title = *title
+	}
+	if description != nil {
+		t.Description = *description
+	}
+	if branch != nil {
+		t.Branch = branch
+	}
+	t.UpdatedAt = time.Now()
+	return t, nil
+}
+
 func (f *fakeTasksRepo) Discard(_ context.Context, id string) error {
 	t, ok := f.items[id]
 	if !ok {
@@ -77,7 +108,7 @@ func (f *fakeTasksRepo) Discard(_ context.Context, id string) error {
 
 func TestTasksAPI_Create_EmitsEvent(t *testing.T) {
 	bus := &events.FakeEmitter{}
-	api := NewTasksAPI(newFakeRepo(), bus, nil, nil)
+	api := NewTasksAPI(newSvc(newFakeRepo(), bus, nil, nil))
 	got, err := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -93,7 +124,7 @@ func TestTasksAPI_Create_EmitsEvent(t *testing.T) {
 func TestTasksAPI_Patch_ValidTransitionEmits(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus, nil, nil)
+	api := NewTasksAPI(newSvc(repo, bus, nil, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 
 	newState := "ready"
@@ -112,7 +143,7 @@ func TestTasksAPI_Patch_ValidTransitionEmits(t *testing.T) {
 func TestTasksAPI_Patch_InvalidTransition(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus, nil, nil)
+	api := NewTasksAPI(newSvc(repo, bus, nil, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 
 	bad := "done"
@@ -125,7 +156,7 @@ func TestTasksAPI_Patch_InvalidTransition(t *testing.T) {
 func TestTasksAPI_Patch_SameState_NoEmit(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus, nil, nil)
+	api := NewTasksAPI(newSvc(repo, bus, nil, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	bus.Calls = nil
 
@@ -142,7 +173,7 @@ func TestTasksAPI_Patch_SameState_NoEmit(t *testing.T) {
 func TestTasksAPI_Discard_EmitsEvent(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus, nil, nil)
+	api := NewTasksAPI(newSvc(repo, bus, nil, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	bus.Calls = nil
 
@@ -156,7 +187,7 @@ func TestTasksAPI_Discard_EmitsEvent(t *testing.T) {
 
 func TestTasksAPI_List_FilterByProject(t *testing.T) {
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, &events.FakeEmitter{}, nil, nil)
+	api := NewTasksAPI(newSvc(repo, &events.FakeEmitter{}, nil, nil))
 	_, _ = api.Create(CreateTaskInput{ProjectID: "a", Title: "x"})
 	_, _ = api.Create(CreateTaskInput{ProjectID: "b", Title: "y"})
 
@@ -177,7 +208,7 @@ func TestTasksAPI_Patch_TerminalCallsCleanup(t *testing.T) {
 		called++
 		return nil
 	}
-	api := NewTasksAPI(repo, bus, cleanup, nil)
+	api := NewTasksAPI(newSvc(repo, bus, cleanup, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	bus.Calls = nil
 
@@ -196,7 +227,7 @@ func TestTasksAPI_Patch_NonTerminalDoesNotCallCleanup(t *testing.T) {
 	repo := newFakeRepo()
 	called := 0
 	cleanup := func(_ context.Context, _ string) error { called++; return nil }
-	api := NewTasksAPI(repo, bus, cleanup, nil)
+	api := NewTasksAPI(newSvc(repo, bus, cleanup, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 
 	target := "ready"
@@ -213,7 +244,7 @@ func TestTasksAPI_Discard_CallsCleanup(t *testing.T) {
 	repo := newFakeRepo()
 	called := 0
 	cleanup := func(_ context.Context, _ string) error { called++; return nil }
-	api := NewTasksAPI(repo, bus, cleanup, nil)
+	api := NewTasksAPI(newSvc(repo, bus, cleanup, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 
 	if err := api.Discard(created.ID); err != nil {
@@ -230,7 +261,7 @@ func TestTasksAPI_Cleanup_ErrorDoesNotPropagate(t *testing.T) {
 	cleanup := func(_ context.Context, _ string) error {
 		return errors.New("simulated cleanup failure")
 	}
-	api := NewTasksAPI(repo, bus, cleanup, nil)
+	api := NewTasksAPI(newSvc(repo, bus, cleanup, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	if err := api.Discard(created.ID); err != nil {
 		t.Errorf("Discard should not propagate cleanup err, got %v", err)
@@ -240,7 +271,7 @@ func TestTasksAPI_Cleanup_ErrorDoesNotPropagate(t *testing.T) {
 func TestTasksAPI_NilCleanup_DoesNotPanic(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus, nil, nil)
+	api := NewTasksAPI(newSvc(repo, bus, nil, nil))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	if err := api.Discard(created.ID); err != nil {
 		t.Errorf("Discard with nil cleanup should not error: %v", err)
@@ -256,7 +287,7 @@ func TestTasksAPI_Patch_TerminalCallsBothCleanups_SessionFirst(t *testing.T) {
 	var order []string
 	worktreeFn := func(_ context.Context, _ string) error { order = append(order, "worktree"); return nil }
 	sessionFn := func(_ context.Context, _ string) error { order = append(order, "session"); return nil }
-	api := NewTasksAPI(repo, bus, worktreeFn, sessionFn)
+	api := NewTasksAPI(newSvc(repo, bus, worktreeFn, sessionFn))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	repo.items[created.ID].State = "review"
 	target := "done"
@@ -272,10 +303,10 @@ func TestTasksAPI_Discard_CallsBothCleanups(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
 	wtCalled, sessCalled := 0, 0
-	api := NewTasksAPI(repo, bus,
+	api := NewTasksAPI(newSvc(repo, bus,
 		func(_ context.Context, _ string) error { wtCalled++; return nil },
 		func(_ context.Context, _ string) error { sessCalled++; return nil },
-	)
+	))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	if err := api.Discard(created.ID); err != nil {
 		t.Fatalf("Discard: %v", err)
@@ -285,14 +316,86 @@ func TestTasksAPI_Discard_CallsBothCleanups(t *testing.T) {
 	}
 }
 
+// Catalog integration: TasksService.Create resolves the template (or fallback)
+// and persists the resolved permission_profile alongside the task row.
+
+func TestTasksAPI_Create_NoTemplate_UsesFallbackProfile(t *testing.T) {
+	repo := newFakeRepo()
+	api := NewTasksAPI(newSvc(repo, &events.FakeEmitter{}, nil, nil))
+	got, err := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got.PermissionProfile == nil {
+		t.Fatal("PermissionProfile is nil; want fallback profile name")
+	}
+	if *got.PermissionProfile != testCatalog.FallbackPermissionProfile {
+		t.Errorf("profile=%q, want %q (fallback)", *got.PermissionProfile, testCatalog.FallbackPermissionProfile)
+	}
+	if got.Template != nil {
+		t.Errorf("Template=%q, want nil", *got.Template)
+	}
+}
+
+func TestTasksAPI_Create_KnownTemplate_PersistsBoth(t *testing.T) {
+	repo := newFakeRepo()
+	api := NewTasksAPI(newSvc(repo, &events.FakeEmitter{}, nil, nil))
+	// Pick any template from the embedded catalog.
+	var pickName, pickProfile string
+	for k, v := range testCatalog.Templates {
+		pickName, pickProfile = k, v.DefaultPermissionProfile
+		break
+	}
+	got, err := api.Create(CreateTaskInput{ProjectID: "p", Title: "x", Template: &pickName})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got.Template == nil || *got.Template != pickName {
+		t.Errorf("Template=%v, want %q", got.Template, pickName)
+	}
+	if got.PermissionProfile == nil || *got.PermissionProfile != pickProfile {
+		t.Errorf("PermissionProfile=%v, want %q", got.PermissionProfile, pickProfile)
+	}
+}
+
+func TestTasksAPI_Create_UnknownTemplate_Errors(t *testing.T) {
+	repo := newFakeRepo()
+	api := NewTasksAPI(newSvc(repo, &events.FakeEmitter{}, nil, nil))
+	ghost := "ghost-template"
+	_, err := api.Create(CreateTaskInput{ProjectID: "p", Title: "x", Template: &ghost})
+	if !errors.Is(err, catalog.ErrTemplateUnknown) {
+		t.Fatalf("err=%v, want ErrTemplateUnknown", err)
+	}
+}
+
 func TestTasksAPI_SessionCleanup_ErrorDoesNotPropagate(t *testing.T) {
 	bus := &events.FakeEmitter{}
 	repo := newFakeRepo()
-	api := NewTasksAPI(repo, bus, nil,
+	api := NewTasksAPI(newSvc(repo, bus, nil,
 		func(_ context.Context, _ string) error { return errors.New("session cleanup boom") },
-	)
+	))
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	if err := api.Discard(created.ID); err != nil {
 		t.Errorf("Discard should swallow session cleanup err, got %v", err)
+	}
+}
+
+func TestTasksService_TerminalState_CallsAllThreeCleanups(t *testing.T) {
+	bus := &events.FakeEmitter{}
+	repo := newFakeRepo()
+	wtCalls, sessCalls, runCalls := 0, 0, 0
+	wt := func(_ context.Context, _ string) error { wtCalls++; return nil }
+	sess := func(_ context.Context, _ string) error { sessCalls++; return nil }
+	runs := func(_ context.Context, _ string) error { runCalls++; return nil }
+	svc := core.NewTasksService(repo, testCatalog, bus, wt, sess, runs, nil)
+	api := NewTasksAPI(svc)
+	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
+	repo.items[created.ID].State = "review"
+	done := "done"
+	if _, err := api.Patch(created.ID, PatchTaskInput{State: &done}); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+	if wtCalls != 1 || sessCalls != 1 || runCalls != 1 {
+		t.Errorf("wt=%d sess=%d runs=%d, want 1/1/1", wtCalls, sessCalls, runCalls)
 	}
 }

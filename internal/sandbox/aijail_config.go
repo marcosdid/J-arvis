@@ -12,13 +12,14 @@ import (
 // WriteAijailConfig writes <cwd>/.ai-jail. Overwrites any prior file.
 //
 // `command` becomes json.Marshal(append([]string{"claude"}, claudeArgs...)).
-// In F10.4 callers pass nil → command = ["claude"].
+// `allowTCPPorts` populates the `allow_tcp_ports = [...]` block — nil/empty
+// emits `[]` (default-deny matches ai-jail's default).
 //
 // `rw_maps` is populated by walking cwd and its immediate children, resolving
 // any `.git` (directory or gitlink file) to the originating repo .git dir.
 // Without these mounts, worktrees inside the jail report
 // "fatal: not a git repository".
-func WriteAijailConfig(cwd string, claudeArgs []string) error {
+func WriteAijailConfig(cwd string, claudeArgs []string, allowTCPPorts []int) error {
 	gitDirs := discoverGitDirs(cwd)
 	cmdArgv := append([]string{"claude"}, claudeArgs...)
 	cmdJSON, err := json.Marshal(cmdArgv)
@@ -39,9 +40,18 @@ func WriteAijailConfig(cwd string, claudeArgs []string) error {
 		rwBlock = b.String()
 	}
 
+	allowPortsBlock := "[]"
+	if len(allowTCPPorts) > 0 {
+		parts := make([]string, len(allowTCPPorts))
+		for i, p := range allowTCPPorts {
+			parts[i] = fmt.Sprintf("%d", p)
+		}
+		allowPortsBlock = "[" + strings.Join(parts, ", ") + "]"
+	}
+
 	body := fmt.Sprintf(
-		"command = %s\nrw_maps = %s\nro_maps = []\nhide_dotdirs = []\nmask = []\nallow_tcp_ports = []\n",
-		string(cmdJSON), rwBlock,
+		"command = %s\nrw_maps = %s\nro_maps = []\nhide_dotdirs = []\nmask = []\nallow_tcp_ports = %s\n",
+		string(cmdJSON), rwBlock, allowPortsBlock,
 	)
 	target := filepath.Join(cwd, ".ai-jail")
 	return os.WriteFile(target, []byte(body), 0o600)

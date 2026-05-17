@@ -12,6 +12,7 @@ type fakeGit struct {
 	mu           sync.Mutex
 	ListResults  map[string][]jgit.WorktreeInfo
 	RemoveErrors map[string]error
+	AddErrors    map[string]error
 	Calls        []fakeCall
 }
 
@@ -27,6 +28,7 @@ func newFakeGit() *fakeGit {
 	return &fakeGit{
 		ListResults:  map[string][]jgit.WorktreeInfo{},
 		RemoveErrors: map[string]error{},
+		AddErrors:    map[string]error{},
 	}
 }
 
@@ -41,6 +43,12 @@ func (f *fakeGit) Add(_ context.Context, repo, target, branch string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Calls = append(f.Calls, fakeCall{Op: "add", Repo: repo, Target: target, Branch: branch})
+	if err, ok := f.AddErrors[target]; ok {
+		return err
+	}
+	if err, ok := f.AddErrors["*"]; ok {
+		return err
+	}
 	return nil
 }
 

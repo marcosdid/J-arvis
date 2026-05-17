@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { useRun, useStartRun, useStopRun } from '../../hooks/useRun';
+import { useBootstrapProposedStore } from '../../stores/bootstrapProposed';
 import { BootstrapModal } from '../dialogs/BootstrapModal';
 import { RunLogsPanel } from '../RunLogsPanel';
 import { ServiceStatusBadge } from '../ServiceStatusBadge';
@@ -8,23 +9,32 @@ import { ServiceStatusBadge } from '../ServiceStatusBadge';
 type Props = { taskId: string };
 
 /**
- * F6.j — aba "Run" do TaskDetailSheet.
+ * F6.j / F10.6 — aba "Run" do TaskDetailSheet.
  *
  * Visão expandida da run da task: badge per-service + URLs clicáveis +
  * painel de logs streamados via SSE. Quando não há run ativa, expõe
- * botão `▶ Run` (idem ao card); 422 `manifest_missing` abre `BootstrapModal`.
+ * botão `▶ Run` (idem ao card). Se `startRun` retorna
+ * `{run:null, bootstrap:{reason:'manifest_missing'}}`, abre `BootstrapModal`.
  */
 export function RunTab({ taskId }: Props) {
   const run = useRun(taskId);
   const startRun = useStartRun(taskId);
   const stopRun = useStopRun(taskId);
   const [bootstrapOpen, setBootstrapOpen] = useState(false);
+  const lastProposed = useBootstrapProposedStore((s) => s.last);
+  const proposedForTask = useMemo(() => {
+    if (!lastProposed || lastProposed.task_id !== taskId) return null;
+    return {
+      manifest_text: lastProposed.manifest_text,
+      valid: lastProposed.valid,
+      errors: lastProposed.errors,
+    };
+  }, [lastProposed, taskId]);
 
   const onStart = () => {
     startRun.mutate(undefined, {
-      onError: (err) => {
-        const msg = (err as Error).message ?? '';
-        if (msg.includes('manifest_missing')) {
+      onSuccess: (result) => {
+        if (result.bootstrap?.reason === 'manifest_missing') {
           setBootstrapOpen(true);
         }
       },
@@ -51,6 +61,7 @@ export function RunTab({ taskId }: Props) {
           <BootstrapModal
             taskId={taskId}
             onClose={() => setBootstrapOpen(false)}
+            proposed={proposedForTask}
           />
         )}
       </div>

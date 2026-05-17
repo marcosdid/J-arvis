@@ -9,7 +9,7 @@ import (
 
 func TestWriteAijailConfig_BareClaudeCommand_EmptyRwMaps(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteAijailConfig(dir, nil); err != nil {
+	if err := WriteAijailConfig(dir, nil, nil); err != nil {
 		t.Fatalf("WriteAijailConfig: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, ".ai-jail"))
@@ -33,7 +33,7 @@ func TestWriteAijailConfig_BareClaudeCommand_EmptyRwMaps(t *testing.T) {
 func TestWriteAijailConfig_WithClaudeArgs(t *testing.T) {
 	dir := t.TempDir()
 	args := []string{"--dangerously-skip-permissions"}
-	if err := WriteAijailConfig(dir, args); err != nil {
+	if err := WriteAijailConfig(dir, args, nil); err != nil {
 		t.Fatalf("WriteAijailConfig: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, ".ai-jail"))
@@ -47,7 +47,7 @@ func TestWriteAijailConfig_DiscoversGitDirInMonorepo(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
-	if err := WriteAijailConfig(dir, nil); err != nil {
+	if err := WriteAijailConfig(dir, nil, nil); err != nil {
 		t.Fatalf("WriteAijailConfig: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, ".ai-jail"))
@@ -64,7 +64,7 @@ func TestWriteAijailConfig_DiscoversGitDirInMultiRepoChildren(t *testing.T) {
 			t.Fatalf("mkdir: %v", err)
 		}
 	}
-	if err := WriteAijailConfig(dir, nil); err != nil {
+	if err := WriteAijailConfig(dir, nil, nil); err != nil {
 		t.Fatalf("WriteAijailConfig: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, ".ai-jail"))
@@ -91,7 +91,7 @@ func TestWriteAijailConfig_ResolvesGitlinkWorktreeFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wtDir, ".git"), []byte(gitlinkContent), 0o644); err != nil {
 		t.Fatalf("write gitlink: %v", err)
 	}
-	if err := WriteAijailConfig(wtDir, nil); err != nil {
+	if err := WriteAijailConfig(wtDir, nil, nil); err != nil {
 		t.Fatalf("WriteAijailConfig: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(wtDir, ".ai-jail"))
@@ -106,11 +106,33 @@ func TestRemoveAijailConfig_Idempotent(t *testing.T) {
 	if err := RemoveAijailConfig(dir); err != nil {
 		t.Errorf("RemoveAijailConfig on missing file: %v", err)
 	}
-	_ = WriteAijailConfig(dir, nil)
+	_ = WriteAijailConfig(dir, nil, nil)
 	if err := RemoveAijailConfig(dir); err != nil {
 		t.Errorf("RemoveAijailConfig: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".ai-jail")); !os.IsNotExist(err) {
 		t.Error("file not removed")
+	}
+}
+
+func TestWriteAijailConfig_WithAllowTCPPorts(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteAijailConfig(dir, nil, []int{55821}); err != nil {
+		t.Fatalf("WriteAijailConfig: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, ".ai-jail"))
+	if !strings.Contains(string(data), "allow_tcp_ports = [55821]") {
+		t.Errorf("allow_tcp_ports not set: %s", string(data))
+	}
+}
+
+func TestWriteAijailConfig_NilAllowTCPPorts_EmitsEmptyArray(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteAijailConfig(dir, nil, nil); err != nil {
+		t.Fatalf("WriteAijailConfig: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, ".ai-jail"))
+	if !strings.Contains(string(data), "allow_tcp_ports = []") {
+		t.Errorf("nil allowTCPPorts should emit empty array: %s", string(data))
 	}
 }

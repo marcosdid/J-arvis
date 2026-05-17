@@ -1,5 +1,7 @@
 package events
 
+import "sync"
+
 type Emitter interface {
 	Emit(name string, payload any)
 }
@@ -21,8 +23,11 @@ func (l *LazyEmitter) Emit(name string, payload any) {
 	}
 }
 
-// FakeEmitter records emitted events for tests.
+// FakeEmitter records emitted events for tests. Thread-safe — production
+// code emits from background goroutines (watchdogs, hook handlers) and
+// tests assert from the foreground.
 type FakeEmitter struct {
+	mu    sync.Mutex
 	Calls []EmitCall
 }
 
@@ -32,5 +37,17 @@ type EmitCall struct {
 }
 
 func (f *FakeEmitter) Emit(name string, payload any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.Calls = append(f.Calls, EmitCall{Name: name, Payload: payload})
+}
+
+// Snapshot returns a copy of Calls under the mutex. Tests use this to poll
+// for events without racing with concurrent emitters (e.g., watcher goroutines).
+func (f *FakeEmitter) Snapshot() []EmitCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]EmitCall, len(f.Calls))
+	copy(out, f.Calls)
+	return out
 }

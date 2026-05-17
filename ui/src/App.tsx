@@ -5,6 +5,7 @@ import { api } from './lib/api';
 import { loadFilters, saveFilters } from './lib/kanbanFilters';
 import { queryKeys } from './lib/query-keys';
 import { useSessionEvents } from './hooks/useSessionEvents';
+import { useBootstrapProposedStore } from './stores/bootstrapProposed';
 
 import { AppShell } from './app/AppShell';
 import { Kanban } from './components/kanban/Kanban';
@@ -16,7 +17,8 @@ import { TaskDetailSheet } from './components/task-detail/TaskDetailSheet';
 
 export function App() {
   const queryClient = useQueryClient();
-  useSessionEvents(queryClient);
+  const setBootstrapProposed = useBootstrapProposedStore((s) => s.setLast);
+  useSessionEvents(queryClient, undefined, setBootstrapProposed);
 
   const projects = useQuery({
     queryKey: queryKeys.projects,

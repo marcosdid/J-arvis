@@ -33,12 +33,13 @@ type TaskFilters struct {
 }
 
 type CreateTaskInput struct {
-	ProjectID   string
-	Title       string
-	Description string
-	State       string
-	Template    *string
-	Branch      *string
+	ProjectID         string
+	Title             string
+	Description       string
+	State             string
+	Template          *string
+	PermissionProfile *string
+	Branch            *string
 }
 
 type TasksRepo struct {
@@ -115,21 +116,22 @@ func (r *TasksRepo) Create(ctx context.Context, in CreateTaskInput) (*Task, erro
 	}
 	_, err := r.db.ExecContext(ctx, `INSERT INTO tasks
 		(id, project_id, title, description, state, branch, template, permission_profile, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-		id, in.ProjectID, in.Title, in.Description, state, in.Branch, in.Template, now, now)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, in.ProjectID, in.Title, in.Description, state, in.Branch, in.Template, in.PermissionProfile, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert task: %w", err)
 	}
 	return &Task{
-		ID:          id,
-		ProjectID:   in.ProjectID,
-		Title:       in.Title,
-		Description: in.Description,
-		State:       state,
-		Branch:      in.Branch,
-		Template:    in.Template,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:                id,
+		ProjectID:         in.ProjectID,
+		Title:             in.Title,
+		Description:       in.Description,
+		State:             state,
+		Branch:            in.Branch,
+		Template:          in.Template,
+		PermissionProfile: in.PermissionProfile,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}, nil
 }
 
@@ -140,6 +142,47 @@ func (r *TasksRepo) UpdateState(ctx context.Context, id, state string) (*Task, e
 		state, now, id)
 	if err != nil {
 		return nil, fmt.Errorf("update state: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, ErrTaskNotFound
+	}
+	return r.Get(ctx, id)
+}
+
+// UpdateFields updates title, description, and/or branch fields (not state).
+// Any nil pointer means that field is not updated.
+func (r *TasksRepo) UpdateFields(ctx context.Context, id string, title *string, description *string, branch *string) (*Task, error) {
+	// Build dynamic UPDATE statement for non-nil fields
+	updates := []string{}
+	args := []any{}
+
+	if title != nil {
+		updates = append(updates, "title = ?")
+		args = append(args, *title)
+	}
+	if description != nil {
+		updates = append(updates, "description = ?")
+		args = append(args, *description)
+	}
+	if branch != nil {
+		updates = append(updates, "branch = ?")
+		args = append(args, *branch)
+	}
+
+	if len(updates) == 0 {
+		// No fields to update, just return the current task
+		return r.Get(ctx, id)
+	}
+
+	updates = append(updates, "updated_at = ?")
+	args = append(args, time.Now().UTC())
+	args = append(args, id)
+
+	query := `UPDATE tasks SET ` + strings.Join(updates, ", ") + ` WHERE id = ?`
+	res, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("update fields: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {

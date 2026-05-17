@@ -23,10 +23,14 @@ import (
 	"syscall"
 
 	"github.com/marcosdid/jarvis/internal/api"
+	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/core"
 	"github.com/marcosdid/jarvis/internal/events"
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
+	"github.com/marcosdid/jarvis/internal/localhttp"
+	"github.com/marcosdid/jarvis/internal/master"
+	"github.com/marcosdid/jarvis/internal/mcp"
 	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
 )
@@ -67,13 +71,7 @@ func main() {
 
 	tokenRegistry := hooks.NewTokenRegistry()
 	hookUpdater := store.NewSessionsHookAdapter(sessionsRepo)
-	hookServer := hooks.NewServer(tokenRegistry, lazyBus, hookUpdater)
-	hookPort, err := hookServer.Start()
-	if err != nil {
-		log.Fatalf("hook server: %v", err)
-	}
-	log.Printf("hook server listening on 127.0.0.1:%d", hookPort)
-	defer func() { _ = hookServer.Stop() }()
+	hookHandler := hooks.NewHandler(tokenRegistry, lazyBus, hookUpdater)
 
 	gitOps := jgit.NewSubprocessOps()
 	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
@@ -89,22 +87,88 @@ func main() {
 		rt = newE2EFakeRuntime()
 	}
 
+	catalogRoot := catalog.MustLoad()
+
+	// Build the shared listener but don't start yet — mcp.NewServer needs
+	// tasksSvc and projectsSvc; sessionsSvc needs localSrv (for BaseURL,
+	// called lazily inside Start). All Mount calls happen before Start.
+	localSrv := localhttp.New()
+	if err := localSrv.Mount("/api/hooks/", hookHandler); err != nil {
+		log.Fatalf("mount hooks: %v", err)
+	}
+
 	sessionsSvc := core.NewSessionsService(
 		sessionsRepo, tasksRepo, worktreesRepo, projectsRepo, worktreesSvc,
-		rt, tokenRegistry, hookServer, lazyBus, claudeHome,
+		rt, tokenRegistry, localSrv, catalogRoot, lazyBus, claudeHome,
 	)
 
-	tasksAPI := api.NewTasksAPI(tasksRepo, lazyBus, worktreesSvc.CleanupForTask, sessionsSvc.CleanupForTask)
+	dockerOps := sandbox.NewSubprocessDockerOps()
+	portAlloc := core.NewPortAllocator()
+	runsRepo := store.NewRunsRepo(db)
+	runsSvc := core.NewRunsService(
+		runsRepo, dockerOps, portAlloc,
+		tasksRepo, worktreesRepo, projectsRepo,
+		lazyBus,
+	)
+
+	bootstrapSvc := core.NewBootstrapService(
+		rt, worktreesSvc, worktreesRepo, tasksRepo, catalogRoot, lazyBus,
+	)
+
+	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus,
+		worktreesSvc.CleanupForTask,
+		sessionsSvc.CleanupForTask,
+		runsSvc.CleanupForTask,
+		bootstrapSvc.CleanupForTask,
+	)
+
+	mcpToken := mcp.NewBearerToken()
+	mcpSrv := mcp.NewServer(tasksSvc, projectsSvc, catalogRoot, mcpToken)
+	if err := localSrv.Mount("/api/mcp", mcpSrv.Handler()); err != nil {
+		log.Fatalf("mount mcp: %v", err)
+	}
+
+	runsAPI := api.NewRunsAPI(runsSvc, func() string { return localSrv.BaseURL() })
+	if err := localSrv.Mount("/api/runs/", runsAPI.LogsHandler()); err != nil {
+		log.Fatalf("mount runs logs: %v", err)
+	}
+
+	hookPort, err := localSrv.Start()
+	if err != nil {
+		log.Fatalf("local http: %v", err)
+	}
+	log.Printf("local http listening on 127.0.0.1:%d", hookPort)
+	defer func() { _ = localSrv.Stop() }()
+
+	// Skip orphan cleanup if Docker is unavailable in CI (e.g. set
+	// JARVIS_E2E_NO_DOCKER=1 in the harness).
+	if os.Getenv("JARVIS_E2E_NO_DOCKER") != "1" {
+		if err := runsSvc.CleanupOrphans(context.Background()); err != nil {
+			log.Printf("orphan run cleanup: %v", err)
+		}
+	}
+	tasksAPI := api.NewTasksAPI(tasksSvc)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
-	masterAPI := api.NewMasterAPI(lazyBus, api.DefaultSessionFactory, os.Getenv("JARVIS_CLAUDE_BIN"))
+
+	masterRepo := store.NewMasterSessionRepo(db)
+	masterSvc := core.NewMasterService(
+		masterRepo,
+		master.New(),
+		func() string { return localSrv.BaseURL() },
+		mcpToken.Value(),
+		filepath.Join(os.TempDir(), "jarvis-e2e-master"),
+		lazyBus,
+	)
+	masterAPI := api.NewMasterAPI(masterSvc, lazyBus)
+	defer func() { _ = masterSvc.Stop(context.Background()) }()
 
 	srv := api.NewE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI)
 	// Wire the hook proxy + token reverse-lookup for /e2e/sessions/simulate_hook
 	// and /e2e/sessions/__token BEFORE Start: Start spawns the serving goroutine,
 	// so these writes must happen-before it to avoid a data race.
-	srv.SetHookBase(hookServer.BaseURL())
+	srv.SetHookBase(localSrv.BaseURL())
 	srv.SetTokenRegistry(tokenRegistry)
 	if _, err := srv.Start(); err != nil {
 		log.Fatalf("e2e server start: %v", err)

@@ -98,13 +98,14 @@ describe('RunStatus', () => {
     expect(await screen.findByRole('button', { name: /run-restart/ })).toBeDefined();
   });
 
-  it('opens BootstrapModal when startRun fails with manifest_missing', async () => {
+  it('opens BootstrapModal when startRun returns bootstrap hint', async () => {
     (api.getActiveRun as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('HTTP 404: no active run'),
     );
-    (api.startRun as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('HTTP 422: manifest_missing'),
-    );
+    (api.startRun as ReturnType<typeof vi.fn>).mockResolvedValue({
+      run: null,
+      bootstrap: { reason: 'manifest_missing' },
+    });
     wrap();
     const btn = await screen.findByRole('button', { name: /run-start/ });
     fireEvent.click(btn);
@@ -113,12 +114,12 @@ describe('RunStatus', () => {
     );
   });
 
-  it('does NOT open bootstrap modal on non-manifest_missing error', async () => {
+  it('does NOT open bootstrap modal on a genuine startRun error', async () => {
     (api.getActiveRun as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('HTTP 404: no active run'),
     );
     (api.startRun as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('HTTP 500: server boom'),
+      new Error('HTTP 500: docker daemon dead'),
     );
     wrap();
     const btn = await screen.findByRole('button', { name: /run-start/ });
