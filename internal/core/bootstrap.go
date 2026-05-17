@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -202,6 +203,28 @@ func (b *BootstrapService) viewFromEntry(e *bootstrapEntry) *StartedBootstrap {
 		PromptPath:   filepath.Join(e.cwd, ".orchestrator", "BOOTSTRAP_PROMPT.md"),
 		WatcherReady: e.watcherReady,
 	}
+}
+
+// Cancel kills the bootstrap runtime, closes the watcher, removes the prompt
+// file, and drops the entry from active. Idempotent — no-op if the entry
+// doesn't exist. Tolerant — runtime.Kill failures are logged, not propagated.
+func (b *BootstrapService) Cancel(ctx context.Context, taskID string) error {
+	b.mu.Lock()
+	entry, ok := b.active[taskID]
+	if !ok {
+		b.mu.Unlock()
+		return nil
+	}
+	delete(b.active, taskID)
+	b.mu.Unlock()
+
+	entry.cancel()
+	_ = entry.watcher.Close()
+	if err := b.runtime.Kill(ctx, entry.handle); err != nil {
+		log.Printf("bootstrap cancel: kill pid %d: %v", entry.handle.PID, err)
+	}
+	_ = os.Remove(filepath.Join(entry.cwd, ".orchestrator", "BOOTSTRAP_PROMPT.md"))
+	return nil
 }
 
 // resolveCwd mirrors SessionsService (internal/core/sessions.go:87) — if no

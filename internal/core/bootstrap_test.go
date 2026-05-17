@@ -376,3 +376,33 @@ func TestStart_MultiRepoWorktreeUsesParentDir(t *testing.T) {
 		t.Errorf("Cwd=%q, want %q (parent of wts[0])", started.Cwd, parent)
 	}
 }
+
+func TestCancel_HappyPath(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	started, err := env.svc.Start(ctx, env.taskID)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started.WatcherReady
+
+	if err := env.svc.Cancel(ctx, env.taskID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	if env.runtime.KillCount() != 1 {
+		t.Errorf("kill count=%d, want 1", env.runtime.KillCount())
+	}
+	if _, err := os.Stat(started.PromptPath); err == nil {
+		t.Error("BOOTSTRAP_PROMPT.md leaked after Cancel")
+	}
+	// Entry removed
+	env.svc.mu.Lock()
+	_, ok := env.svc.active[env.taskID]
+	env.svc.mu.Unlock()
+	if ok {
+		t.Error("entry still in active map after Cancel")
+	}
+}
