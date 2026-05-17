@@ -272,3 +272,24 @@ func TestStart_HappyPath(t *testing.T) {
 		t.Fatalf("spawn count=%d, want 1", got)
 	}
 }
+
+func TestStart_IdempotentReturnsExisting(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	first, err := env.svc.Start(ctx, env.taskID)
+	if err != nil {
+		t.Fatalf("Start #1: %v", err)
+	}
+	second, err := env.svc.Start(ctx, env.taskID)
+	if err != nil {
+		t.Fatalf("Start #2: %v", err)
+	}
+	if first.SessionID != second.SessionID {
+		t.Errorf("SessionID changed: %q vs %q", first.SessionID, second.SessionID)
+	}
+	if env.runtime.SpawnCount() != 1 {
+		t.Errorf("spawn count=%d, want 1", env.runtime.SpawnCount())
+	}
+}
