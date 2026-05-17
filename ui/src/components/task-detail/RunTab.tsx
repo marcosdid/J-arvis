@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { useRun, useStartRun, useStopRun } from '../../hooks/useRun';
+import { useBootstrapProposedStore } from '../../stores/bootstrapProposed';
 import { BootstrapModal } from '../dialogs/BootstrapModal';
 import { RunLogsPanel } from '../RunLogsPanel';
 import { ServiceStatusBadge } from '../ServiceStatusBadge';
@@ -20,6 +21,15 @@ export function RunTab({ taskId }: Props) {
   const startRun = useStartRun(taskId);
   const stopRun = useStopRun(taskId);
   const [bootstrapOpen, setBootstrapOpen] = useState(false);
+  const lastProposed = useBootstrapProposedStore((s) => s.last);
+  const proposedForTask = useMemo(() => {
+    if (!lastProposed || lastProposed.task_id !== taskId) return null;
+    return {
+      manifest_text: lastProposed.manifest_text,
+      valid: lastProposed.valid,
+      errors: lastProposed.errors,
+    };
+  }, [lastProposed, taskId]);
 
   const onStart = () => {
     startRun.mutate(undefined, {
@@ -51,6 +61,7 @@ export function RunTab({ taskId }: Props) {
           <BootstrapModal
             taskId={taskId}
             onClose={() => setBootstrapOpen(false)}
+            proposed={proposedForTask}
           />
         )}
       </div>
