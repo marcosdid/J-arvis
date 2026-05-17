@@ -463,6 +463,93 @@ func TestCleanupForTask_DelegatesCancel(t *testing.T) {
 	}
 }
 
+func TestDetection_InvalidKeepsWatching(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	started, err := env.svc.Start(ctx, env.taskID)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started.WatcherReady
+
+	// First write: invalid (missing version)
+	bad := []byte("services:\n  web:\n    image: nginx\n")
+	if err := os.WriteFile(started.ManifestPath, bad, 0o644); err != nil {
+		t.Fatalf("write bad: %v", err)
+	}
+	if !waitForEvent(env.emitter, "bootstrap.proposed", 2*time.Second) {
+		t.Fatal("first bootstrap.proposed not emitted")
+	}
+
+	// First emit should be invalid
+	{
+		calls := env.emitter.Snapshot()
+		var firstBootstrap events.EmitCall
+		for _, c := range calls {
+			if c.Name == "bootstrap.proposed" {
+				firstBootstrap = c
+				break
+			}
+		}
+		p := firstBootstrap.Payload.(BootstrapProposedPayload)
+		if p.Valid {
+			t.Errorf("first emit valid=true, want false (bad yaml)")
+		}
+	}
+
+	// Entry, prompt, watcher all still live
+	if _, err := os.Stat(started.PromptPath); err != nil {
+		t.Error("BOOTSTRAP_PROMPT.md removed on invalid (should persist)")
+	}
+	env.svc.mu.Lock()
+	_, stillActive := env.svc.active[env.taskID]
+	env.svc.mu.Unlock()
+	if !stillActive {
+		t.Error("entry removed from active map on invalid (should persist)")
+	}
+
+	// Now drop a valid manifest
+	good := []byte(`version: "1"
+services:
+  web:
+    image: nginx
+`)
+	if err := os.WriteFile(started.ManifestPath, good, 0o644); err != nil {
+		t.Fatalf("write good: %v", err)
+	}
+
+	// Wait for SECOND emit (valid)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snap := env.emitter.Snapshot()
+		validCount := 0
+		for _, c := range snap {
+			if c.Name == "bootstrap.proposed" {
+				if c.Payload.(BootstrapProposedPayload).Valid {
+					validCount++
+				}
+			}
+		}
+		if validCount >= 1 {
+			// Confirm cleanup happened on the valid one
+			if _, err := os.Stat(started.PromptPath); err == nil {
+				t.Error("BOOTSTRAP_PROMPT.md still on disk after valid emit")
+			}
+			env.svc.mu.Lock()
+			_, stillActiveAfter := env.svc.active[env.taskID]
+			env.svc.mu.Unlock()
+			if stillActiveAfter {
+				t.Error("entry still in active map after valid emit")
+			}
+			return // success
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("second (valid) bootstrap.proposed never emitted")
+}
+
 func TestDetection_ValidEmitsAndCleansUp(t *testing.T) {
 	env := newBootstrapTestEnv(t)
 	defer env.cleanup()
