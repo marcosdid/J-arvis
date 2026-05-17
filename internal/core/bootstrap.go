@@ -227,6 +227,12 @@ func (b *BootstrapService) Cancel(ctx context.Context, taskID string) error {
 	return nil
 }
 
+// CleanupForTask is the signature TasksService expects for terminal-state
+// cleanup. Delegates to Cancel.
+func (b *BootstrapService) CleanupForTask(ctx context.Context, taskID string) error {
+	return b.Cancel(ctx, taskID)
+}
+
 // resolveCwd mirrors SessionsService (internal/core/sessions.go:87) — if no
 // worktree, create one. Uses the separately-injected b.worktrees repo (same
 // pattern SessionsService uses for store.WorktreesRepo).

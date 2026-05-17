@@ -432,3 +432,19 @@ func TestCancel_Idempotent(t *testing.T) {
 		t.Errorf("kill count=%d, want 1 (second Cancel should not kill again)", env.runtime.KillCount())
 	}
 }
+
+func TestCleanupForTask_DelegatesCancel(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	if _, err := env.svc.Start(ctx, env.taskID); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if err := env.svc.CleanupForTask(ctx, env.taskID); err != nil {
+		t.Fatalf("CleanupForTask: %v", err)
+	}
+	if env.runtime.KillCount() != 1 {
+		t.Errorf("kill count=%d, want 1", env.runtime.KillCount())
+	}
+}
