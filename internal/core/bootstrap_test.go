@@ -406,3 +406,29 @@ func TestCancel_HappyPath(t *testing.T) {
 		t.Error("entry still in active map after Cancel")
 	}
 }
+
+func TestCancel_UnknownTask(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	if err := env.svc.Cancel(context.Background(), "no-such-task"); err != nil {
+		t.Errorf("Cancel on unknown: err=%v, want nil", err)
+	}
+}
+
+func TestCancel_Idempotent(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+	if _, err := env.svc.Start(ctx, env.taskID); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := env.svc.Cancel(ctx, env.taskID); err != nil {
+		t.Fatalf("Cancel #1: %v", err)
+	}
+	if err := env.svc.Cancel(ctx, env.taskID); err != nil {
+		t.Errorf("Cancel #2: err=%v, want nil (no-op)", err)
+	}
+	if env.runtime.KillCount() != 1 {
+		t.Errorf("kill count=%d, want 1 (second Cancel should not kill again)", env.runtime.KillCount())
+	}
+}
