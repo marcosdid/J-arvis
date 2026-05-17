@@ -6,7 +6,7 @@ import { BootstrapModal } from './dialogs/BootstrapModal';
 type Props = { taskId: string };
 
 /**
- * F6.j — rodapé do TaskCard mostrando estado da Run.
+ * F6.j / F10.6 — rodapé do TaskCard mostrando estado da Run.
  *
  * Estados:
  * - `useRun.data === null` (sem run ativa): botão `▶ Run`.
@@ -14,7 +14,8 @@ type Props = { taskId: string };
  * - status ready: chips clicáveis (1 por service exposto) + `⏹ Stop`.
  * - status failed: `✗ Falha` + botão pra abrir logs/modal.
  *
- * Quando `startRun` retorna 422 manifest_missing, abre `BootstrapModal`.
+ * Quando `startRun` retorna `{run:null, bootstrap:{reason:'manifest_missing'}}`,
+ * abre `BootstrapModal`. Erros de verdade caem em `onError` (não abrem modal).
  */
 export function RunStatus({ taskId }: Props) {
   const run = useRun(taskId);
@@ -24,11 +25,12 @@ export function RunStatus({ taskId }: Props) {
 
   const onStart = () => {
     startRun.mutate(undefined, {
-      onError: (err) => {
-        const msg = (err as Error).message ?? '';
-        if (msg.includes('manifest_missing')) {
+      onSuccess: (result) => {
+        if (result.bootstrap?.reason === 'manifest_missing') {
           setBootstrapOpen(true);
         }
+        // result.run != null → normal flow; the useRun query will refetch
+        // (already wired in useStartRun.onSuccess).
       },
     });
   };

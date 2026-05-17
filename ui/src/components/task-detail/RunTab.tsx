@@ -8,11 +8,12 @@ import { ServiceStatusBadge } from '../ServiceStatusBadge';
 type Props = { taskId: string };
 
 /**
- * F6.j — aba "Run" do TaskDetailSheet.
+ * F6.j / F10.6 — aba "Run" do TaskDetailSheet.
  *
  * Visão expandida da run da task: badge per-service + URLs clicáveis +
  * painel de logs streamados via SSE. Quando não há run ativa, expõe
- * botão `▶ Run` (idem ao card); 422 `manifest_missing` abre `BootstrapModal`.
+ * botão `▶ Run` (idem ao card). Se `startRun` retorna
+ * `{run:null, bootstrap:{reason:'manifest_missing'}}`, abre `BootstrapModal`.
  */
 export function RunTab({ taskId }: Props) {
   const run = useRun(taskId);
@@ -22,9 +23,8 @@ export function RunTab({ taskId }: Props) {
 
   const onStart = () => {
     startRun.mutate(undefined, {
-      onError: (err) => {
-        const msg = (err as Error).message ?? '';
-        if (msg.includes('manifest_missing')) {
+      onSuccess: (result) => {
+        if (result.bootstrap?.reason === 'manifest_missing') {
           setBootstrapOpen(true);
         }
       },
