@@ -19,7 +19,7 @@ var testCatalog = catalog.MustLoad()
 func newSvc(repo core.TasksRepoInterface, bus events.Emitter,
 	wt core.TasksWorktreeCleanupFn, sess core.TasksSessionCleanupFn,
 ) *core.TasksService {
-	return core.NewTasksService(repo, testCatalog, bus, wt, sess, nil)
+	return core.NewTasksService(repo, testCatalog, bus, wt, sess, nil, nil)
 }
 
 type fakeTasksRepo struct {
@@ -387,7 +387,7 @@ func TestTasksService_TerminalState_CallsAllThreeCleanups(t *testing.T) {
 	wt := func(_ context.Context, _ string) error { wtCalls++; return nil }
 	sess := func(_ context.Context, _ string) error { sessCalls++; return nil }
 	runs := func(_ context.Context, _ string) error { runCalls++; return nil }
-	svc := core.NewTasksService(repo, testCatalog, bus, wt, sess, runs)
+	svc := core.NewTasksService(repo, testCatalog, bus, wt, sess, runs, nil)
 	api := NewTasksAPI(svc)
 	created, _ := api.Create(CreateTaskInput{ProjectID: "p", Title: "x"})
 	repo.items[created.ID].State = "review"

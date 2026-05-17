@@ -115,6 +115,7 @@ func main() {
 		worktreesSvc.CleanupForTask,
 		sessionsSvc.CleanupForTask,
 		runsSvc.CleanupForTask,
+		nil, // bootstrapSvc.CleanupForTask — wired in F10.6.B.9.2
 	)
 
 	mcpToken := mcp.NewBearerToken()

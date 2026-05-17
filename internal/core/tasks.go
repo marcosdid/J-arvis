@@ -24,6 +24,7 @@ type TasksRepoInterface interface {
 type TasksWorktreeCleanupFn func(ctx context.Context, taskID string) error
 type TasksSessionCleanupFn func(ctx context.Context, taskID string) error
 type TasksRunsCleanupFn func(ctx context.Context, taskID string) error
+type TasksBootstrapCleanupFn func(ctx context.Context, taskID string) error
 
 type CreateTaskInput struct {
 	ProjectID   string  `json:"project_id"`
@@ -41,12 +42,13 @@ type PatchTaskInput struct {
 }
 
 type TasksService struct {
-	repo            TasksRepoInterface
-	catalog         *catalog.Catalog
-	bus             events.Emitter
-	worktreeCleanup TasksWorktreeCleanupFn
-	sessionCleanup  TasksSessionCleanupFn
-	runsCleanup     TasksRunsCleanupFn
+	repo             TasksRepoInterface
+	catalog          *catalog.Catalog
+	bus              events.Emitter
+	worktreeCleanup  TasksWorktreeCleanupFn
+	sessionCleanup   TasksSessionCleanupFn
+	runsCleanup      TasksRunsCleanupFn
+	bootstrapCleanup TasksBootstrapCleanupFn
 }
 
 func NewTasksService(
@@ -54,14 +56,16 @@ func NewTasksService(
 	worktreeCleanup TasksWorktreeCleanupFn,
 	sessionCleanup TasksSessionCleanupFn,
 	runsCleanup TasksRunsCleanupFn,
+	bootstrapCleanup TasksBootstrapCleanupFn,
 ) *TasksService {
 	return &TasksService{
-		repo:            repo,
-		catalog:         cat,
-		bus:             bus,
-		worktreeCleanup: worktreeCleanup,
-		sessionCleanup:  sessionCleanup,
-		runsCleanup:     runsCleanup,
+		repo:             repo,
+		catalog:          cat,
+		bus:              bus,
+		worktreeCleanup:  worktreeCleanup,
+		sessionCleanup:   sessionCleanup,
+		runsCleanup:      runsCleanup,
+		bootstrapCleanup: bootstrapCleanup,
 	}
 }
 
@@ -130,10 +134,10 @@ func (s *TasksService) Patch(ctx context.Context, id string, in PatchTaskInput) 
 		current = updated
 		s.bus.Emit("task.updated", updated)
 		if IsTerminal(*in.State) {
-			// Order: sessions → runs → worktrees.
-			// Sessions first: subprocesses may write to worktree files
-			// Runs second: containers may mount volumes from worktree
-			// Worktrees last: files become safely deletable
+			// Order: bootstrap → sessions → runs → worktrees.
+			// Bootstrap first because it's the cheapest to kill (no containers,
+			// no volumes, no network).
+			s.runBootstrapCleanup(ctx, id)
 			s.runSessionCleanup(ctx, id)
 			s.runRunsCleanup(ctx, id)
 			s.runWorktreeCleanup(ctx, id)
@@ -157,6 +161,7 @@ func (s *TasksService) Discard(ctx context.Context, id string) error {
 	} else {
 		s.bus.Emit("task.discarded", map[string]string{"id": id})
 	}
+	s.runBootstrapCleanup(ctx, id)
 	s.runSessionCleanup(ctx, id)
 	s.runRunsCleanup(ctx, id)
 	s.runWorktreeCleanup(ctx, id)
@@ -187,5 +192,14 @@ func (s *TasksService) runRunsCleanup(ctx context.Context, taskID string) {
 	}
 	if err := s.runsCleanup(ctx, taskID); err != nil {
 		log.Printf("runs cleanup for task %s: %v", taskID, err)
+	}
+}
+
+func (s *TasksService) runBootstrapCleanup(ctx context.Context, taskID string) {
+	if s.bootstrapCleanup == nil {
+		return
+	}
+	if err := s.bootstrapCleanup(ctx, taskID); err != nil {
+		log.Printf("bootstrap cleanup for task %s: %v", taskID, err)
 	}
 }
