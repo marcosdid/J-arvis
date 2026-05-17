@@ -22,3 +22,5 @@ var (
 	ErrTaskAlreadyHasActiveSession = errors.New("task already has an active session")
 	ErrSandboxUnavailable          = errors.New("sandbox runtime unavailable (ai-jail or terminal missing)")
 )
+
+var ErrManifestAlreadyExists = errors.New("bootstrap: .orchestrator/run.yml already exists")
