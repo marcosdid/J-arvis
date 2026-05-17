@@ -111,11 +111,15 @@ func main() {
 		lazyBus,
 	)
 
+	bootstrapSvc := core.NewBootstrapService(
+		rt, worktreesSvc, worktreesRepo, tasksRepo, catalogRoot, lazyBus,
+	)
+
 	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus,
 		worktreesSvc.CleanupForTask,
 		sessionsSvc.CleanupForTask,
 		runsSvc.CleanupForTask,
-		nil, // bootstrapSvc.CleanupForTask — wired in F10.6.B.9.2
+		bootstrapSvc.CleanupForTask,
 	)
 
 	mcpToken := mcp.NewBearerToken()
