@@ -115,11 +115,15 @@ func main() {
 		lazyBus,
 	)
 
+	bootstrapSvc := core.NewBootstrapService(
+		runtime, worktreesSvc, worktreesRepo, tasksRepo, catalogRoot, lazyBus,
+	)
+
 	tasksSvc := core.NewTasksService(tasksRepo, catalogRoot, lazyBus,
 		worktreesSvc.CleanupForTask,
 		sessionsSvc.CleanupForTask,
 		runsSvc.CleanupForTask,
-		nil, // bootstrapSvc.CleanupForTask — wired in F10.6.B.9.1
+		bootstrapSvc.CleanupForTask,
 	)
 
 	mcpToken := mcp.NewBearerToken()
@@ -170,6 +174,7 @@ func main() {
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
+	bootstrapAPI := api.NewBootstrapAPI(bootstrapSvc)
 
 	masterRepo := store.NewMasterSessionRepo(db)
 	masterSvc := core.NewMasterService(
@@ -221,6 +226,7 @@ func main() {
 			sessionsAPI,
 			catalogAPI,
 			runsAPI,
+			bootstrapAPI,
 		},
 		// mcpSrv is mounted on localSrv directly — not bound to Wails (it's
 		// consumed by master-claude over HTTP, not by the UI).
