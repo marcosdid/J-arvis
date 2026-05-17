@@ -1,5 +1,35 @@
 export namespace api {
 	
+	export class BootstrapHint {
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BootstrapHint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reason = source["reason"];
+	    }
+	}
+	export class BootstrapView {
+	    session_id: string;
+	    cwd: string;
+	    manifest_path: string;
+	    prompt_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BootstrapView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.session_id = source["session_id"];
+	        this.cwd = source["cwd"];
+	        this.manifest_path = source["manifest_path"];
+	        this.prompt_path = source["prompt_path"];
+	    }
+	}
 	export class CatalogView {
 	    version: string;
 	    fallback_permission_profile: string;
@@ -138,6 +168,38 @@ export namespace api {
 	        this.started_at = this.convertValues(source["started_at"], null);
 	        this.ended_at = this.convertValues(source["ended_at"], null);
 	        this.error_message = source["error_message"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class StartRunResult {
+	    run?: RunView;
+	    bootstrap?: BootstrapHint;
+	
+	    static createFrom(source: any = {}) {
+	        return new StartRunResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.run = this.convertValues(source["run"], RunView);
+	        this.bootstrap = this.convertValues(source["bootstrap"], BootstrapHint);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

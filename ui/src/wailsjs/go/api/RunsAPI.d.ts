@@ -9,6 +9,6 @@ export function LocalHTTPBase():Promise<string>;
 
 export function LogsHandler():Promise<http.Handler>;
 
-export function Start(arg1:string):Promise<api.RunView>;
+export function Start(arg1:string):Promise<api.StartRunResult>;
 
 export function Stop(arg1:string):Promise<void>;
