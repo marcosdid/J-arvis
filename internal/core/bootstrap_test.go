@@ -69,10 +69,13 @@ func (r *bootstrapFakeRuntime) KillCount() int {
 }
 
 // bootstrapEnvOpt lets tests inject overrides (e.g., a fakeGit that fails Add).
-// Task 3.8 will exercise this; for now it's an empty hook.
 type bootstrapEnvOpt func(*bootstrapEnvConfig)
 type bootstrapEnvConfig struct {
-	// Task 3.8 fills this in. For Tasks 3.1-3.7, leave empty.
+	gitAddWorktreeErr error
+}
+
+func withGitAddWorktreeErr(err error) bootstrapEnvOpt {
+	return func(c *bootstrapEnvConfig) { c.gitAddWorktreeErr = err }
 }
 
 // bootstrapTestEnv bundles all the dependencies a bootstrap test needs.
@@ -152,6 +155,9 @@ func newBootstrapTestEnv(t *testing.T, opts ...bootstrapEnvOpt) *bootstrapTestEn
 	fake := &events.FakeEmitter{}
 	runtime := &bootstrapFakeRuntime{}
 	gitOps := newFakeGit()
+	if cfg.gitAddWorktreeErr != nil {
+		gitOps.AddErrors["*"] = cfg.gitAddWorktreeErr
+	}
 	wtSvc := NewWorktreesService(wtsRepo, reposRepo, projectsRepo, gitOps, fake)
 
 	svc := NewBootstrapService(runtime, wtSvc, wtsRepo, tasksRepo, cat, fake)
@@ -309,5 +315,25 @@ func TestStart_SpawnFailsCleansUp(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.worktree, ".ai-jail")); err == nil {
 		t.Error(".ai-jail leaked on disk after spawn failure")
+	}
+}
+
+func TestStart_WorktreeCreationFails(t *testing.T) {
+	env := newBootstrapTestEnv(t, withGitAddWorktreeErr(errors.New("forced git failure")))
+	defer env.cleanup()
+	ctx := context.Background()
+
+	// Drop the seeded worktree so resolveCwd calls CreateForTask (which hits the failing git).
+	wts, _ := env.wtsRepo.ListByTask(ctx, env.taskID)
+	for _, wt := range wts {
+		_ = env.wtsRepo.Delete(ctx, wt.ID)
+	}
+
+	_, err := env.svc.Start(ctx, env.taskID)
+	if err == nil || !strings.Contains(err.Error(), "create worktrees for task") {
+		t.Fatalf("Start: err=%v, want worktree creation failure", err)
+	}
+	if env.runtime.SpawnCount() != 0 {
+		t.Errorf("spawn count=%d, want 0", env.runtime.SpawnCount())
 	}
 }
