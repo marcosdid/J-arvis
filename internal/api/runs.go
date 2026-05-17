@@ -13,13 +13,39 @@ import (
 	"github.com/marcosdid/jarvis/internal/store"
 )
 
+// runsService is the subset of *core.RunsService the API layer depends on.
+// Defined as an interface so tests can inject fakes (mirrors sessions.go).
+type runsService interface {
+	StartRun(ctx context.Context, taskID string) (*store.Run, error)
+	StopRun(ctx context.Context, runID string) error
+	GetActiveByTask(ctx context.Context, taskID string) (*store.Run, error)
+	ContainerIDFor(ctx context.Context, runID, service string) (string, error)
+	StreamLogs(ctx context.Context, containerID string, w io.Writer) error
+}
+
 type RunsAPI struct {
-	svc     *core.RunsService
+	svc     runsService
 	baseURL func() string
 }
 
-func NewRunsAPI(svc *core.RunsService, baseURL func() string) *RunsAPI {
+func NewRunsAPI(svc runsService, baseURL func() string) *RunsAPI {
 	return &RunsAPI{svc: svc, baseURL: baseURL}
+}
+
+// StartRunResult is the union "run succeeded OR needs bootstrap". Exactly one
+// of Run / Bootstrap is non-nil on success. Errors still propagate normally
+// (sandbox-unavailable, docker-down, etc.) — only the manifest-missing case
+// turns into a hint instead of an error.
+type StartRunResult struct {
+	Run       *RunView       `json:"run,omitempty"`
+	Bootstrap *BootstrapHint `json:"bootstrap,omitempty"`
+}
+
+// BootstrapHint signals that the UI should offer the bootstrap flow. The
+// Reason field is extensible — today it's always "manifest_missing"; future
+// reasons could be "schema_outdated", etc.
+type BootstrapHint struct {
+	Reason string `json:"reason"`
 }
 
 type RunView struct {
@@ -55,15 +81,16 @@ func toRunView(r *store.Run) RunView {
 	}
 }
 
-func (a *RunsAPI) Start(taskID string) (RunView, error) {
+func (a *RunsAPI) Start(taskID string) (StartRunResult, error) {
 	run, err := a.svc.StartRun(context.Background(), taskID)
 	if err != nil {
 		if errors.Is(err, core.ErrManifestMissing) {
-			return RunView{}, fmt.Errorf("no manifest at <worktree>/.orchestrator/run.yml — commit one to enable Run")
+			return StartRunResult{Bootstrap: &BootstrapHint{Reason: "manifest_missing"}}, nil
 		}
-		return RunView{}, err
+		return StartRunResult{}, err
 	}
-	return toRunView(run), nil
+	view := toRunView(run)
+	return StartRunResult{Run: &view}, nil
 }
 
 func (a *RunsAPI) Get(taskID string) (RunView, error) {
