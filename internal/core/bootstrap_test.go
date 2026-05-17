@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/marcosdid/jarvis/internal/catalog"
 	"github.com/marcosdid/jarvis/internal/events"
@@ -174,6 +175,19 @@ func newBootstrapTestEnv(t *testing.T, opts ...bootstrapEnvOpt) *bootstrapTestEn
 		worktree:     wt,
 		cleanup:      func() { _ = db.Close() },
 	}
+}
+
+func waitForEvent(emitter *events.FakeEmitter, name string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, c := range emitter.Snapshot() {
+			if c.Name == name {
+				return true
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
 }
 
 func TestStart_TaskInTerminalState(t *testing.T) {
@@ -443,6 +457,73 @@ func TestCleanupForTask_DelegatesCancel(t *testing.T) {
 
 	if err := env.svc.CleanupForTask(ctx, env.taskID); err != nil {
 		t.Fatalf("CleanupForTask: %v", err)
+	}
+	if env.runtime.KillCount() != 1 {
+		t.Errorf("kill count=%d, want 1", env.runtime.KillCount())
+	}
+}
+
+func TestDetection_ValidEmitsAndCleansUp(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	started, err := env.svc.Start(ctx, env.taskID)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started.WatcherReady
+
+	manifest := []byte(`version: "1"
+services:
+  web:
+    image: nginx:latest
+    port: 80
+`)
+	if err := os.WriteFile(started.ManifestPath, manifest, 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	if !waitForEvent(env.emitter, "bootstrap.proposed", 2*time.Second) {
+		t.Fatal("bootstrap.proposed not emitted within 2s")
+	}
+
+	// Inspect payload — find the LAST bootstrap.proposed call
+	calls := env.emitter.Snapshot()
+	var last events.EmitCall
+	found := false
+	for _, c := range calls {
+		if c.Name == "bootstrap.proposed" {
+			last = c
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no bootstrap.proposed call in snapshot")
+	}
+	p, ok := last.Payload.(BootstrapProposedPayload)
+	if !ok {
+		t.Fatalf("payload type=%T, want BootstrapProposedPayload", last.Payload)
+	}
+	if !p.Valid {
+		t.Errorf("Valid=false, errors=%v", p.Errors)
+	}
+	if p.ManifestText != string(manifest) {
+		t.Errorf("ManifestText mismatch")
+	}
+	if p.TaskID != env.taskID {
+		t.Errorf("TaskID=%q, want %q", p.TaskID, env.taskID)
+	}
+
+	// Cleanup happened
+	if _, err := os.Stat(started.PromptPath); err == nil {
+		t.Error("BOOTSTRAP_PROMPT.md still on disk after valid detection")
+	}
+	env.svc.mu.Lock()
+	_, stillActive := env.svc.active[env.taskID]
+	env.svc.mu.Unlock()
+	if stillActive {
+		t.Error("entry still in active map after valid detection")
 	}
 	if env.runtime.KillCount() != 1 {
 		t.Errorf("kill count=%d, want 1", env.runtime.KillCount())
