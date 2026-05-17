@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -170,3 +171,22 @@ func newBootstrapTestEnv(t *testing.T, opts ...bootstrapEnvOpt) *bootstrapTestEn
 
 // Suppress "imported and not used" warnings on filepath until Task 3.4 needs it.
 var _ = filepath.Join
+
+func TestStart_TaskInTerminalState(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	ctx := context.Background()
+
+	// Move task to terminal state ("done").
+	if _, err := env.tasksRepo.UpdateState(ctx, env.taskID, "done"); err != nil {
+		t.Fatalf("UpdateState: %v", err)
+	}
+
+	_, err := env.svc.Start(ctx, env.taskID)
+	if !errors.Is(err, ErrTaskInTerminalState) {
+		t.Fatalf("Start: err=%v, want ErrTaskInTerminalState", err)
+	}
+	if env.runtime.SpawnCount() != 0 {
+		t.Errorf("spawn called %d times; want 0", env.runtime.SpawnCount())
+	}
+}

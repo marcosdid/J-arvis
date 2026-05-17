@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"sync"
 	"time"
 
@@ -81,4 +82,15 @@ func NewBootstrapService(
 		catalog: cat, bus: bus,
 		active: make(map[string]*bootstrapEntry),
 	}
+}
+
+func (b *BootstrapService) Start(ctx context.Context, taskID string) (*StartedBootstrap, error) {
+	task, err := b.tasks.Get(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if IsTerminal(task.State) {
+		return nil, ErrTaskInTerminalState
+	}
+	return nil, errors.New("Start: not implemented yet")
 }
