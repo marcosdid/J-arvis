@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -504,6 +505,55 @@ services:
 	}
 	if env.runtime.KillCount() != 1 {
 		t.Errorf("KillCount=%d, want 1", env.runtime.KillCount())
+	}
+}
+
+func TestDetection_RaceWithCancel(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		t.Run(fmt.Sprintf("iter-%d", i), func(t *testing.T) {
+			env := newBootstrapTestEnv(t)
+			defer env.cleanup()
+			ctx := context.Background()
+
+			started, err := env.svc.Start(ctx, env.taskID)
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			<-started.WatcherReady
+
+			manifest := []byte(`version: "1"
+services:
+  web:
+    image: nginx
+`)
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				_ = os.WriteFile(started.ManifestPath, manifest, 0o644)
+			}()
+			go func() {
+				defer wg.Done()
+				_ = env.svc.Cancel(ctx, env.taskID)
+			}()
+			wg.Wait()
+
+			// Give the watcher a chance to consume.
+			time.Sleep(100 * time.Millisecond)
+
+			// Exactly one Kill regardless of who won.
+			if k := env.runtime.KillCount(); k != 1 {
+				t.Errorf("KillCount=%d, want 1 (race winner cleans up exactly once)", k)
+			}
+			// Entry must be gone.
+			env.svc.mu.Lock()
+			_, stillActive := env.svc.active[env.taskID]
+			env.svc.mu.Unlock()
+			if stillActive {
+				t.Error("entry still in active map after race")
+			}
+		})
 	}
 }
 
