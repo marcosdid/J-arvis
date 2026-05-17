@@ -293,3 +293,21 @@ func TestStart_IdempotentReturnsExisting(t *testing.T) {
 		t.Errorf("spawn count=%d, want 1", env.runtime.SpawnCount())
 	}
 }
+
+func TestStart_SpawnFailsCleansUp(t *testing.T) {
+	env := newBootstrapTestEnv(t)
+	defer env.cleanup()
+	env.runtime.spawnErr = errors.New("forced spawn failure")
+
+	_, err := env.svc.Start(context.Background(), env.taskID)
+	if err == nil || !strings.Contains(err.Error(), "spawn bootstrap claude") {
+		t.Fatalf("Start: err=%v, want spawn failure", err)
+	}
+	// Prompt and .ai-jail should NOT remain on disk.
+	if _, err := os.Stat(filepath.Join(env.worktree, ".orchestrator", "BOOTSTRAP_PROMPT.md")); err == nil {
+		t.Error("BOOTSTRAP_PROMPT.md leaked on disk after spawn failure")
+	}
+	if _, err := os.Stat(filepath.Join(env.worktree, ".ai-jail")); err == nil {
+		t.Error(".ai-jail leaked on disk after spawn failure")
+	}
+}
