@@ -216,27 +216,65 @@ describe('useSessionEvents', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.run('t1') });
   });
 
-  it('bootstrap.proposed emits toast about manifest ready', () => {
+  it('bootstrap.proposed falls back to toast when emitBootstrapProposed is not wired', () => {
     const qc = new QueryClient();
     const toast = vi.fn();
     renderHook(() => useSessionEvents(qc, toast));
     const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
     onEvent({
-      type: 'bootstrap.proposed', session_id: '', task_id: null,
-      payload: { manifest_text: 'version: "1"' }, at: '',
+      type: 'bootstrap.proposed', session_id: '', task_id: 't1',
+      payload: { manifest_text: 'version: "1"', valid: true, errors: [] }, at: '',
     });
-    expect(toast).toHaveBeenCalledWith('Manifesto pronto. Tente Run de novo.');
+    expect(toast).toHaveBeenCalledWith('Manifesto pronto. Abra o painel da tarefa.');
   });
 
-  it('bootstrap.proposed without emitToast is no-op', () => {
+  it('bootstrap.proposed without emitToast and without emitBootstrapProposed is no-op', () => {
     const qc = new QueryClient();
     renderHook(() => useSessionEvents(qc));
     const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
     expect(() => {
       onEvent({
-        type: 'bootstrap.proposed', session_id: '', task_id: null,
-        payload: { manifest_text: '' }, at: '',
+        type: 'bootstrap.proposed', session_id: '', task_id: 't1',
+        payload: { manifest_text: '', valid: false, errors: ['x'] }, at: '',
       });
     }).not.toThrow();
+  });
+
+  it('bootstrap.proposed dispatches to emitBootstrapProposed when provided (and skips toast)', () => {
+    const qc = new QueryClient();
+    const toast = vi.fn();
+    const emitBootstrap = vi.fn();
+    renderHook(() => useSessionEvents(qc, toast, emitBootstrap));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({
+      type: 'bootstrap.proposed', session_id: '', task_id: 't1',
+      payload: { manifest_text: 'version: "1"\n', valid: true, errors: [] },
+      at: '2026-05-17T00:00:00Z',
+    });
+    expect(emitBootstrap).toHaveBeenCalledWith({
+      task_id: 't1',
+      manifest_text: 'version: "1"\n',
+      valid: true,
+      errors: [],
+    });
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('bootstrap.proposed forwards invalid payload (valid=false + errors)', () => {
+    const qc = new QueryClient();
+    const emitBootstrap = vi.fn();
+    renderHook(() => useSessionEvents(qc, undefined, emitBootstrap));
+    const onEvent = connectMock.mock.calls[0]?.[0] as (e: unknown) => void;
+    onEvent({
+      type: 'bootstrap.proposed', session_id: '', task_id: 't2',
+      payload: { manifest_text: 'bad', valid: false, errors: ['missing version'] },
+      at: '',
+    });
+    expect(emitBootstrap).toHaveBeenCalledWith({
+      task_id: 't2',
+      manifest_text: 'bad',
+      valid: false,
+      errors: ['missing version'],
+    });
   });
 });
