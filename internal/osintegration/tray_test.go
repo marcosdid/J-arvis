@@ -273,3 +273,17 @@ func TestTrayController_OnExitNoOpAfterSteadyStateQuit(t *testing.T) {
 		t.Errorf("after Stop(): onQuit = %d, want still 1 (onExit must be no-op)", got)
 	}
 }
+
+func TestTrayController_StartFailFactoryReturnsNil(t *testing.T) {
+	// Factory returns all-nil — simulates a totally-broken backend
+	// (e.g., nativeStart silent fail with conn=nil — though our real
+	// factory wraps this differently).
+	badFactory := func(_, _ func()) (trayLib, func(), func()) {
+		return nil, nil, nil
+	}
+	ctl := NewTrayControllerForTest(func() {}, func() {}, badFactory)
+
+	// Should not panic.
+	ctl.Start(context.Background())
+	ctl.Stop()
+}
