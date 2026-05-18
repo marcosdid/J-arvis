@@ -222,3 +222,25 @@ func TestTrayController_QuitClickIdempotentUnderConcurrency(t *testing.T) {
 		t.Error("lib.Quit not called")
 	}
 }
+
+func TestTrayController_OnExitFiresOnQuitWhenSteadyStateDidNot(t *testing.T) {
+	var quits int32
+	fact := newFakeTrayFactory()
+	ctl := NewTrayControllerForTest(
+		func() {},
+		func() { atomic.AddInt32(&quits, 1) },
+		fact.Make(),
+	)
+	ctl.Start(context.Background())
+
+	// Do NOT click mQuit. Go straight to Stop() — simulates SIGTERM/kill
+	// causing Wails OnShutdown to fire without the user clicking the tray.
+	ctl.Stop()
+
+	if got := atomic.LoadInt32(&quits); got != 1 {
+		t.Errorf("onQuit = %d, want 1 (onExit fallback should fire)", got)
+	}
+	if !fact.ended.Load() {
+		t.Error("end() never called by Stop()")
+	}
+}
