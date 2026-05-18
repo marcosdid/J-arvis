@@ -58,14 +58,65 @@ var realTrayFactory trayFactory = func(onReady, onExit func()) (trayLib, func(),
 	panic("realTrayFactory not yet implemented (lands in Task 7.1)")
 }
 
-// Start placeholder — Task 5 wires it. Splitting the skeleton from the
-// behavior lets Stage 4 land alone (no half-built logic in a committed file).
+// Start registers tray callbacks via the factory and invokes the lib's
+// start function. Should be called from Wails OnStartup BEFORE any
+// tray-aware UI logic depends on the icon existing.
 func (t *TrayController) Start(ctx context.Context) {
-	// Implementation in Task 5.1
-	_ = ctx
+	t.lib, t.start, t.end = t.factory(t.makeOnReady(ctx), t.makeOnExit())
+	if t.start != nil {
+		t.start()
+	}
 }
 
-// Stop placeholder — Task 6 wires it.
+func (t *TrayController) makeOnReady(ctx context.Context) func() {
+	return func() {
+		t.lib.SetIcon(TrayIconPNG)
+		t.lib.SetTooltip("J-arvis")
+		mShow := t.lib.AddMenuItem("Mostrar janela", "")
+		t.lib.AddSeparator()
+		mQuit := t.lib.AddMenuItem("Quit", "Encerrar J-arvis (mata sessions, runs, master)")
+
+		go t.menuLoop(ctx, mShow, mQuit)
+	}
+}
+
+func (t *TrayController) menuLoop(ctx context.Context, mShow, mQuit trayItem) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-mShow.Clicked():
+			t.onShow()
+		case <-mQuit.Clicked():
+			// STEADY-STATE PATH: user clicked Quit. Win the swap;
+			// onExit (which runs at OnShutdown via Stop()) finds
+			// quitInProgress=true and no-ops.
+			if !t.quitInProgress.Swap(true) {
+				t.lib.Quit()
+				t.onQuit()
+			}
+			return
+		}
+	}
+}
+
+func (t *TrayController) makeOnExit() func() {
+	return func() {
+		// FALLBACK PATH: lib loop ended (only via Stop() in external-loop
+		// mode). If steady-state path already swapped (user clicked Quit),
+		// this is a no-op. Otherwise we initiate the quit ourselves.
+		if !t.quitInProgress.Swap(true) {
+			t.onQuit()
+		}
+	}
+}
+
+// Stop tears the tray down deterministically via the lib's `end` function.
+// In external-loop mode, this is what triggers nativeEnd → runSystrayExit
+// → our onExit. Should be called from Wails OnShutdown (before
+// masterSvc.Stop — UI ops sumir antes das domain ops).
 func (t *TrayController) Stop() {
-	// Implementation in Task 6.x
+	if t.end != nil {
+		t.end()
+	}
 }
