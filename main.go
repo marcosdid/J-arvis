@@ -244,10 +244,10 @@ func main() {
 			ctxCopy := c
 			appCtxPtr.Store(&ctxCopy) // make ctx visible to other goroutines
 			if trayAvailable {
-				// Start in a goroutine so Wails main loop is not blocked. The
-				// Linux nativeStart is D-Bus-only (no GTK calls), so it is
-				// safe to run off the GTK thread.
-				go trayCtl.Start(c)
+				// Start runs synchronously (assigns t.lib/start/end) and then
+				// launches the lib's start function in its own goroutine internally.
+				// This sequences the field writes before OnShutdown can read them.
+				trayCtl.Start(c)
 			}
 		},
 		OnShutdown: func(_ context.Context) {

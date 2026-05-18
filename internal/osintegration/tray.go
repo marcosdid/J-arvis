@@ -83,13 +83,19 @@ var realTrayFactory trayFactory = func(onReady, onExit func()) (trayLib, func(),
 	return &realTrayLib{}, start, end
 }
 
-// Start registers tray callbacks via the factory and invokes the lib's
-// start function. Should be called from Wails OnStartup BEFORE any
-// tray-aware UI logic depends on the icon existing.
+// Start registers tray callbacks via the factory (synchronous, fast — just
+// callback registration; no D-Bus/GTK work happens here). It then launches
+// t.start() in a goroutine since nativeStart blocks until the lib loop
+// finishes.
+//
+// MUST be called synchronously from Wails OnStartup. Wails calls OnStartup
+// and OnShutdown serially on the same main goroutine — so by the time
+// OnShutdown can run, all of t.lib/t.start/t.end are already assigned
+// (no race on Stop's read).
 func (t *TrayController) Start(ctx context.Context) {
 	t.lib, t.start, t.end = t.factory(t.makeOnReady(ctx), t.makeOnExit())
 	if t.start != nil {
-		t.start()
+		go t.start()
 	}
 }
 

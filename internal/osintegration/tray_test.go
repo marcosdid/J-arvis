@@ -109,6 +109,21 @@ type fakeTrayFactory struct {
 
 func newFakeTrayFactory() *fakeTrayFactory { return &fakeTrayFactory{lib: &fakeTrayLib{}} }
 
+// waitStarted polls until the factory's start() callback has been invoked.
+// Start now launches t.start() in a goroutine (to fix the race with Stop),
+// so tests must wait instead of asserting synchronously.
+func (f *fakeTrayFactory) waitStarted(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if f.started.Load() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("start() never called within 500ms")
+}
+
 func (f *fakeTrayFactory) Make() trayFactory {
 	return func(onReady, onExit func()) (trayLib, func(), func()) {
 		f.mu.Lock()
@@ -136,10 +151,8 @@ func TestTrayController_StartWiresMenuItems(t *testing.T) {
 	fact := newFakeTrayFactory()
 	ctl := NewTrayControllerForTest(func() {}, func() {}, fact.Make())
 	ctl.Start(context.Background())
+	fact.waitStarted(t)
 
-	if !fact.started.Load() {
-		t.Fatal("start() never called")
-	}
 	if len(fact.lib.IconBytes()) == 0 {
 		t.Error("SetIcon not called or empty")
 	}
@@ -170,6 +183,7 @@ func TestTrayController_ShowClickInvokesOnShow(t *testing.T) {
 		fact.Make(),
 	)
 	ctl.Start(context.Background())
+	fact.waitStarted(t)
 
 	mShow := fact.lib.ItemByTitle("Mostrar janela")
 	if mShow == nil {
@@ -196,6 +210,7 @@ func TestTrayController_QuitClickIdempotentUnderConcurrency(t *testing.T) {
 		fact.Make(),
 	)
 	ctl.Start(context.Background())
+	fact.waitStarted(t)
 	mQuit := fact.lib.ItemByTitle("Quit")
 	if mQuit == nil {
 		t.Fatal("Quit not in menu")
@@ -254,6 +269,7 @@ func TestTrayController_OnExitNoOpAfterSteadyStateQuit(t *testing.T) {
 		fact.Make(),
 	)
 	ctl.Start(context.Background())
+	fact.waitStarted(t)
 
 	// Click Quit (steady-state path A — mQuit wins the swap).
 	fact.lib.ItemByTitle("Quit").clickCh <- struct{}{}
