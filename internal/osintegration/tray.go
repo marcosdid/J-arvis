@@ -3,6 +3,8 @@ package osintegration
 import (
 	"context"
 	"sync/atomic"
+
+	"fyne.io/systray"
 )
 
 // trayItem is the minimal interface a menu item must satisfy: expose a
@@ -53,9 +55,32 @@ func NewTrayControllerForTest(onShow, onQuit func(), factory trayFactory) *TrayC
 	return &TrayController{factory: factory, onShow: onShow, onQuit: onQuit}
 }
 
-// realTrayFactory wraps fyne.io/systray. Stub for now — Task 7.1 fills it in.
+// realTrayItem wraps *systray.MenuItem to satisfy our trayItem interface.
+type realTrayItem struct{ inner *systray.MenuItem }
+
+func (r *realTrayItem) Clicked() <-chan struct{} { return r.inner.ClickedCh }
+
+// realTrayLib wraps the fyne.io/systray package-level functions to satisfy trayLib.
+type realTrayLib struct{}
+
+func (r *realTrayLib) SetIcon(b []byte)    { systray.SetIcon(b) }
+func (r *realTrayLib) SetTooltip(t string) { systray.SetTooltip(t) }
+func (r *realTrayLib) AddMenuItem(title, tip string) trayItem {
+	return &realTrayItem{inner: systray.AddMenuItem(title, tip)}
+}
+func (r *realTrayLib) AddSeparator() { systray.AddSeparator() }
+func (r *realTrayLib) Quit()         { systray.Quit() }
+
+// realTrayFactory is the production factory. It wraps systray.RunWithExternalLoop:
+//   - returns realTrayLib (forwards to the package singleton)
+//   - returns (start, end) callbacks that the caller invokes at Wails OnStartup
+//     / OnShutdown respectively.
+//
+// On Linux, start triggers nativeStart (D-Bus connect + StatusNotifierItem
+// export); end triggers nativeEnd → runSystrayExit → onExit + systray.Quit().
 var realTrayFactory trayFactory = func(onReady, onExit func()) (trayLib, func(), func()) {
-	panic("realTrayFactory not yet implemented (lands in Task 7.1)")
+	start, end := systray.RunWithExternalLoop(onReady, onExit)
+	return &realTrayLib{}, start, end
 }
 
 // Start registers tray callbacks via the factory and invokes the lib's
