@@ -186,3 +186,39 @@ func TestTrayController_ShowClickInvokesOnShow(t *testing.T) {
 		t.Errorf("onShow called %d times, want 1", atomic.LoadInt32(&shows))
 	}
 }
+
+func TestTrayController_QuitClickIdempotentUnderConcurrency(t *testing.T) {
+	var quits int32
+	fact := newFakeTrayFactory()
+	ctl := NewTrayControllerForTest(
+		func() {},
+		func() { atomic.AddInt32(&quits, 1) },
+		fact.Make(),
+	)
+	ctl.Start(context.Background())
+	mQuit := fact.lib.ItemByTitle("Quit")
+	if mQuit == nil {
+		t.Fatal("Quit not in menu")
+	}
+
+	// Push 10 clicks concurrently. menuLoop reads serially but the
+	// drain is non-blocking (buffered channel), so order doesn't matter.
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); mQuit.clickCh <- struct{}{} }()
+	}
+	wg.Wait()
+
+	// Give menuLoop a moment to process the first click + return.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && atomic.LoadInt32(&quits) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := atomic.LoadInt32(&quits); got != 1 {
+		t.Errorf("onQuit called %d times, want 1", got)
+	}
+	if !fact.lib.quitCalled.Load() {
+		t.Error("lib.Quit not called")
+	}
+}
