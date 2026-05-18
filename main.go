@@ -17,12 +17,14 @@ import (
 	"github.com/marcosdid/jarvis/internal/localhttp"
 	"github.com/marcosdid/jarvis/internal/master"
 	"github.com/marcosdid/jarvis/internal/mcp"
+	"github.com/marcosdid/jarvis/internal/osintegration"
 	"github.com/marcosdid/jarvis/internal/sandbox"
 	"github.com/marcosdid/jarvis/internal/store"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime" // alias avoids shadowing the local `runtime` var declared inside main()
 )
 
 //go:embed all:ui/dist
@@ -192,7 +194,42 @@ func main() {
 
 	startE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI)
 
-	wailsErr := wails.Run(&options.App{
+	cliFlags := osintegration.ParseFlags()
+	_ = cliFlags // Focus flag is informational; handler always focuses regardless
+	trayAvailable := osintegration.PreflightOK()
+
+	// appCtxPtr is written once from Wails main thread (OnStartup), read from
+	// multiple goroutines (tray menuLoop + Wails D-Bus listener for
+	// handleSecondInstance). atomic.Pointer matches the existing realBus
+	// pattern in this file (line 65).
+	var appCtxPtr atomic.Pointer[context.Context]
+
+	onShow := func() {
+		if p := appCtxPtr.Load(); p != nil {
+			wruntime.WindowShow(*p)
+			wruntime.WindowUnminimise(*p)
+		}
+	}
+	onQuit := func() {
+		if p := appCtxPtr.Load(); p != nil {
+			wruntime.Quit(*p)
+		}
+	}
+
+	handleSecondInstance := func(_ options.SecondInstanceData) {
+		// Always focus, regardless of args. --focus is documented intent only today.
+		// Note: this callback may fire BEFORE OnStartup completes if a second
+		// instance launches immediately. In that case appCtxPtr.Load() returns
+		// nil and we skip the focus — best-effort, no panic.
+		if p := appCtxPtr.Load(); p != nil {
+			wruntime.WindowShow(*p)
+			wruntime.WindowUnminimise(*p)
+		}
+	}
+
+	trayCtl := osintegration.NewTrayController(onShow, onQuit)
+
+	appOpts := &options.App{
 		Title:  "J-arvis",
 		Width:  1400,
 		Height: 900,
@@ -204,11 +241,26 @@ func main() {
 			app.startup(c)
 			emitter := events.Emitter(events.NewWailsEmitter(c))
 			realBus.Store(&emitter)
+			ctxCopy := c
+			appCtxPtr.Store(&ctxCopy) // make ctx visible to other goroutines
+			if trayAvailable {
+				// Start runs synchronously (assigns t.lib/start/end) and then
+				// launches the lib's start function in its own goroutine internally.
+				// This sequences the field writes before OnShutdown can read them.
+				trayCtl.Start(c)
+			}
 		},
 		OnShutdown: func(_ context.Context) {
-			// Stop master FIRST — its subprocess writes to .claude/settings.json which
-			// references localSrv's URL. Stopping localSrv first would leave the
-			// master claude process making requests against a closed listener.
+			// Stop tray FIRST — UI ops sumir antes das domain ops. This
+			// cascades through end() → nativeEnd → onExit → swap (no-op if
+			// user already clicked Quit, else triggers onQuit).
+			if trayAvailable {
+				trayCtl.Stop()
+			}
+			// Stop master FIRST (of the domain ops) — its subprocess writes
+			// to .claude/settings.json which references localSrv's URL.
+			// Stopping localSrv first would leave the master claude process
+			// making requests against a closed listener.
 			if err := masterSvc.Stop(context.Background()); err != nil {
 				log.Printf("master shutdown: %v", err)
 			}
@@ -230,7 +282,17 @@ func main() {
 		},
 		// mcpSrv is mounted on localSrv directly — not bound to Wails (it's
 		// consumed by master-claude over HTTP, not by the UI).
-	})
+	}
+
+	if trayAvailable {
+		appOpts.HideWindowOnClose = true
+		appOpts.SingleInstanceLock = &options.SingleInstanceLock{
+			UniqueId:               "com.marcosdid.jarvis",
+			OnSecondInstanceLaunch: handleSecondInstance,
+		}
+	}
+
+	wailsErr := wails.Run(appOpts)
 	if wailsErr != nil {
 		// OnShutdown does not fire if Run fails before the window opens.
 		_ = localSrv.Stop()
