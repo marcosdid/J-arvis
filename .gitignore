@@ -1,21 +1,3 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-.venv/
-.python-version
-
-# uv
-uv.lock.diff
-
 # Node / UI
 node_modules/
 .pnpm-store/
@@ -43,7 +25,6 @@ test-results/
 # Local data
 *.db
 *.sqlite*
-.orchestrator/data/
 
 # Build / cache
 dist/
