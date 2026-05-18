@@ -1,85 +1,99 @@
-.PHONY: help install install-py install-ui dev dev-backend dev-ui \
-        test-unit test-int test-e2e test-all coverage \
-        lint format build docker-build clean
+.PHONY: start doctor install build-ui build-bin run dev build build-e2e-http test test-go test-ui test-e2e lint clean help
 
-UV := uv
-PNPM := pnpm
-UI_DIR := ui
+# Build tags required on Ubuntu 24.04+ (webkit2gtk-4.1 instead of -4.0)
+TAGS ?= webkit2_41
+BIN  := build/bin/jarvis
+
+# ----- one-shot bootstrap + launch -----
+# `make start` installs deps, builds, and launches the app.
+# Idempotent: re-runs skip steps whose outputs are fresh.
+start: doctor install build-bin run
 
 help:
-	@echo "Targets:"
-	@echo "  install      Install all Python and Node dependencies"
-	@echo "  dev          Run backend + UI dev servers in parallel"
-	@echo "  test-unit    Run Python unit tests"
-	@echo "  test-int     Run Python integration tests"
-	@echo "  test-e2e     Run Playwright + testcontainers E2E tests"
-	@echo "  test-all     Run unit + integration + E2E"
-	@echo "  coverage     Combined Python coverage report (gate 100%)"
-	@echo "  lint         Ruff + TypeScript checks"
-	@echo "  format       Ruff format"
-	@echo "  build        Build UI static bundle"
-	@echo "  docker-build Build orchestrator Docker image"
-	@echo "  clean        Remove caches and build artefacts"
+	@echo ""
+	@echo "J-arvis F10 (native Wails app) — common targets:"
+	@echo ""
+	@echo "  make start       FIRST RUN — installs deps, builds, launches"
+	@echo "  make run         launch existing build/bin/jarvis"
+	@echo "  make build-bin   rebuild the binary only"
+	@echo "  make dev         wails dev mode (window with HMR)"
+	@echo ""
+	@echo "  make test        lint + go tests + UI tests"
+	@echo "  make test-e2e    Playwright E2E (spawns binary)"
+	@echo "  make lint        gofmt + go vet + golangci-lint"
+	@echo "  make clean       remove build artifacts"
+	@echo ""
+	@echo "Environment variables (optional):"
+	@echo "  JARVIS_DB_PATH       SQLite path (default: ~/.local/share/jarvis/jarvis.db)"
+	@echo "  JARVIS_CLAUDE_BIN    Path to claude binary (default: 'claude' on PATH)"
+	@echo ""
 
-install: install-py install-ui
-	$(UV) run playwright install chromium
+# ----- prereq checks -----
+doctor:
+	@echo ">>> [doctor] checking prerequisites"
+	@command -v go            >/dev/null || (echo "MISSING: go (install Go 1.22+)" ; exit 1)
+	@command -v node          >/dev/null || (echo "MISSING: node (install Node 20+)" ; exit 1)
+	@command -v pnpm          >/dev/null || (echo "MISSING: pnpm (npm i -g pnpm)" ; exit 1)
+	@pkg-config --exists webkit2gtk-4.1 || (echo "MISSING: libwebkit2gtk-4.1-dev (sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config)" ; exit 1)
+	@pkg-config --exists gtk+-3.0       || (echo "MISSING: libgtk-3-dev (sudo apt install libgtk-3-dev)" ; exit 1)
+	@echo "    OK: go, node, pnpm, webkit2gtk-4.1, gtk+-3.0"
 
-install-py:
-	$(UV) sync --group dev --group test-unit --group test-integration --group test-e2e
+# ----- deps -----
+install: ui/node_modules go.sum
 
-install-ui:
-	cd $(UI_DIR) && $(PNPM) install --frozen-lockfile
+ui/node_modules: ui/package.json ui/pnpm-lock.yaml
+	@echo ">>> [install] pnpm install (ui/)"
+	cd ui && pnpm install
 
+go.sum: go.mod
+	@echo ">>> [install] go mod tidy"
+	go mod tidy
+
+# ----- build -----
+build-ui: ui/dist/index.html
+
+ui/dist/index.html: ui/node_modules $(shell find ui/src -type f 2>/dev/null)
+	@echo ">>> [build-ui] vite build"
+	cd ui && pnpm run build
+
+build-bin: $(BIN)
+
+$(BIN): build-ui $(shell find . -name "*.go" -not -path "./ui/*" -not -path "./build/*" 2>/dev/null) go.sum
+	@echo ">>> [build-bin] go build -tags '$(TAGS) production'"
+	go build -tags "$(TAGS) production" -ldflags "-w -s" -o $(BIN) .
+
+# ----- run -----
+run: $(BIN)
+	@echo ">>> [run] launching $(BIN)"
+	@echo "    Press Ctrl+C in this terminal to quit. Window may open behind other apps."
+	@$(BIN)
+
+# ----- dev workflow -----
 dev:
-	@echo "Starting backend on :8000 and UI on :5173 — Ctrl+C stops both"
-	@trap 'kill 0' INT TERM EXIT; \
-	$(UV) run uvicorn orchestrator.main:app --reload --port 8000 & \
-	(cd $(UI_DIR) && $(PNPM) dev) & \
-	wait
-
-dev-backend:
-	$(UV) run uvicorn orchestrator.main:app --reload --port 8000
-
-dev-ui:
-	cd $(UI_DIR) && $(PNPM) dev
-
-test-unit:
-	$(UV) run pytest tests/unit -m unit
-
-test-int:
-	$(UV) run pytest tests/integration -m integration
-
-test-e2e:
-	$(UV) run pytest tests/e2e -m e2e
-
-# Coverage gate scope (per ARCHITECTURE.md §9): unit + integration cover
-# the Python codebase to 100%; UI Vitest covers src/lib/hooks/stores to 100%;
-# E2E targets 100% of UI flows (not Python line coverage — the daemon runs
-# inside a container, out of coverage.py reach).
-test-all:
-	$(UV) run pytest tests/unit tests/integration -m "unit or integration" \
-		--cov=orchestrator --cov-fail-under=100
-	cd $(UI_DIR) && $(PNPM) coverage
-	$(UV) run pytest tests/e2e -m e2e
-
-coverage:
-	$(UV) run pytest tests/unit tests/integration -m "unit or integration" \
-		--cov=orchestrator --cov-report=term-missing --cov-fail-under=100
-
-lint:
-	$(UV) run ruff check .
-	cd $(UI_DIR) && $(PNPM) exec tsc -b --noEmit
-
-format:
-	$(UV) run ruff format .
+	wails dev -tags "$(TAGS)"
 
 build:
-	cd $(UI_DIR) && $(PNPM) build
+	wails build -platform linux/amd64 -tags "$(TAGS)"
 
-docker-build:
-	docker build -f Dockerfile.orchestrator -t j-arvis-orchestrator:latest .
+build-e2e-http:
+	go build -tags "e2e_http" -o build/bin/jarvis-e2e-http ./cmd/jarvis-e2e-http
+
+test: lint test-go test-ui
+
+test-e2e: build-e2e-http
+	cd ui && pnpm run build && npx playwright test
+
+test-go:
+	go test -race -tags "$(TAGS)" -coverprofile=coverage.out ./internal/...
+
+test-ui:
+	cd ui && pnpm test -- --run
+
+lint:
+	@out=$$(gofmt -l . | grep -v ui/node_modules | grep -v ui/dist) ; \
+	  if [ -n "$$out" ]; then echo "gofmt issues:"; echo "$$out"; exit 1; fi
+	go vet -tags "$(TAGS)" ./...
+	golangci-lint run
 
 clean:
-	rm -rf .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov coverage.xml
-	rm -rf $(UI_DIR)/dist $(UI_DIR)/coverage $(UI_DIR)/.vite
-	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+	rm -rf build/bin coverage.out ui/dist
