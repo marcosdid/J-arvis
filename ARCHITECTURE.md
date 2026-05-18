@@ -19,17 +19,19 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Browser (UI: React + Vite)                                 │
-│   ↕ HTTP + WebSocket                                        │
+│  WebView (webkit2gtk-4.1) loaded by Wails — UI React        │
+│   ↕ Wails bindings (in-process Go ↔ JS)                     │
 ├─────────────────────────────────────────────────────────────┤
-│  Orchestrator daemon (Python + FastAPI) — fora da jaula     │
-│  ├── api/        REST + WS                                  │
-│  ├── core/       domínio: tasks, sessions                   │
-│  ├── runtime/    Run from Panel (manifesto + Docker)        │
-│  ├── sandbox/    SessionRuntime (backend ai-jail)           │
-│  ├── hooks/      endpoints + parser de eventos              │
-│  ├── store/      SQLite local                               │
-│  └── planner/    meta-agente (v1.5)                         │
+│  Binário Wails (Go) — fora da jaula                         │
+│  ├── internal/api/        Wails bindings + LogsHandler SSE  │
+│  ├── internal/core/       domínio: tasks, sessions, runs    │
+│  ├── internal/sandbox/    Runtime (ai-jail), DockerOps      │
+│  ├── internal/hooks/      handlers HTTP loopback            │
+│  ├── internal/store/      SQLite via modernc.org/sqlite     │
+│  ├── internal/master/     master Claude PTY (sidebar)       │
+│  ├── internal/mcp/        MCP server for master Claude      │
+│  ├── internal/osintegration/  tray + single-instance D-Bus  │
+│  └── ui/                  React + Tailwind embedded         │
 ├─────────────────────────────────────────────────────────────┤
 │  ai-jail (binário externo, Akita) — dependência do host     │
 │   └── claude-code (1 processo por sessão)                   │
@@ -51,8 +53,8 @@ contexto histórico do brainstorm, ver `CONTEXT.md`.
   - `branch` (F5): opcional. Vazio → daemon usa `slugify_for_branch(title)`.
     Imutável após 1ª sessão (422).
   - `template`/`permission_profile` populados em F7 quando user escolhe template no form de criar task. Tasks F4-F6 ficam NULL e usam fallback (`yolo`) do catálogo no spawn.
-- `ClaudeSession(id, task_id, cwd, jail_id, status, pid, started_at, ended_at?, transcript_path)`
-  - Classe nomeada `ClaudeSession` para não colidir com `sqlalchemy.orm.Session`/`AsyncSession`. Tabela `sessions`.
+- `Session(id, task_id, cwd, jail_id, status, pid, started_at, ended_at?, transcript_path)`
+  - Go struct `store.Session` (tabela `sessions`). Sem ORM — queries diretas via `database/sql` + modernc.org/sqlite. A renomeação histórica `ClaudeSession` (pra não colidir com SQLAlchemy) deixa de fazer sentido no Go.
   - `cwd` (F5) substitui `worktree_id` da F1/F4: pra multi-repo `cwd` é o
     diretório-pai que contém N worktrees. Ver [ADR-0016](docs/adr/0016-multi-repo-1-sessao-cwd-shared.md).
   - `status ∈ {executing, awaiting_response, idle, error, done}`
@@ -112,33 +114,31 @@ settings.json no jail) e ADR-0010 (envelope WS).
 
 ```
 J-arvis/
-├── pyproject.toml
+├── go.mod
+├── go.sum
 ├── Makefile
-├── Dockerfile.orchestrator
-├── orchestrator/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── api/
-│   ├── core/
-│   ├── runtime/
-│   ├── sandbox/
-│   ├── hooks/
-│   ├── store/
-│   └── planner/
-├── ui/
-│   ├── package.json
-│   ├── vite.config.ts
+├── wails.json
+├── main.go                       # Wails entry: options, OnStartup, OnShutdown
+├── app.go                        # App struct + Wails bindings ctx
+├── internal/
+│   ├── api/                      # Wails-bound APIs (Tasks/Projects/Sessions/Runs/Master/Bootstrap/Catalog/Worktrees/Health)
+│   ├── catalog/                  # YAML curado (templates + perfis) embedado
+│   ├── core/                     # domínio: tasks, sessions, runs, bootstrap, master, port allocator, manifest
+│   ├── events/                   # Wails emitter + FakeEmitter pra testes
+│   ├── git/                      # WorktreeOps (subprocess git)
+│   ├── hooks/                    # HTTP handler /api/hooks/<event>/<token>
+│   ├── localhttp/                # 127.0.0.1:0 listener pra hooks + run logs SSE
+│   ├── master/                   # PTY pra master Claude session
+│   ├── mcp/                      # MCP server (JSON-RPC 2.0) pro master Claude
+│   ├── osintegration/            # system tray + D-Bus single-instance + --focus CLI
+│   ├── sandbox/                  # Runtime (ai-jail), DockerOps, settings.json, .ai-jail
+│   └── store/                    # SQLite via modernc.org/sqlite + goose migrations
+├── cmd/
+│   └── jarvis-e2e-http/          # HTTP shim build (-tags e2e_http) pra Playwright
+├── ui/                           # React + Tailwind v4 + shadcn/ui (compilado via Vite; embedado via //go:embed em main.go)
 │   └── src/
-├── tests/
-│   ├── unit/                 # pytest, sem I/O
-│   ├── integration/          # pytest + testcontainers
-│   │   ├── conftest.py
-│   │   └── routes/
-│   └── e2e/                  # Playwright + testcontainers
-│       ├── conftest.py
-│       └── flows/
 └── .orchestrator/
-    └── run.yml               # dogfood do próprio orquestrador
+    └── run.yml                   # convenção runtime: manifest do task (commitado por task)
 ```
 
 ## 8. Disciplina de desenvolvimento — TDD
@@ -156,47 +156,57 @@ Não escrevo código de produção sem teste falhando antes. Não testo
 
 | Camada | Stack | Alvo | Escopo |
 |---|---|---|---|
-| **Unit (Python)** | `pytest` + `pytest-asyncio` + `coverage.py` | **100%** | Lógica de domínio sem I/O. Usa fakes nas costuras. |
-| **Integration (rotas)** | `pytest` + `httpx.AsyncClient` + `testcontainers-python` | **100% das rotas** | FastAPI real, SQLite real (arquivo temp), testcontainers do Docker para paths que tocam `RunInstance`. |
-| **E2E (fluxos UI)** | `Playwright` + `testcontainers-python` | **100% dos fluxos** | Container do daemon + build estático da UI + ai-jail real (já instalado no host de dev). |
-| **Frontend unit** | `Vitest` + RTL | **100% em hooks e lógica**; componentes de apresentação puros dispensados. | Lógica frontend, formatadores, stores. |
+| **Unit + Integration (Go)** | `go test -tags webkit2_41 ./internal/...` + `//go:build integration` para integração com Docker | rigor por package | Lógica de domínio, repositórios SQLite, runtime ai-jail (fakes vs real), DockerOps. Race detector recomendado (`-race`). |
+| **Integration com Docker** | `go test -tags 'webkit2_41 integration' ./internal/core/...` | crítica | Sobe containers reais (`docker run --rm`), valida `RunsService.StartRun` end-to-end, opt-in via build tag pra não rodar em CI sem Docker. |
+| **UI unit** | `vitest` + RTL | rigor em hooks/lib/stores | Lógica frontend (formatters, stores, hooks). Coverage gate em `ui/vitest.config.ts`. |
+| **E2E (fluxos UI)** | `Playwright` contra `cmd/jarvis-e2e-http` (binary HTTP shim) | fluxos críticos | Build estático da UI + binary HTTP shim (`-tags e2e_http`) + ai-jail real (host de dev). |
 
-`# pragma: no cover` é **admitido** para:
-- Linhas defensivas inalcançáveis (`raise NotImplementedError` em
-  Protocol, branches `match` exaustivos com `case _:`).
-- Blocos guard que dependem de plataforma e o ambiente de teste não
-  consegue exercitar.
-
-Cobertura computada **após** exclusões justificadas — o alvo de 100% é
-literal sobre o conjunto não excluído.
+Cobertura conduzida via `go test -cover` (não há equivalente direto ao
+`# pragma: no cover` do pytest em Go). Coverage rigor 100% (típico pré-
+F10) deprecado durante o pivot — alvo é cobertura saudável sem
+metric-gaming. Exclusões implícitas (defensive `if err != nil`, panic-
+recover guards) são aceitas pela natureza idiomática do Go.
 
 ## 10. Costuras de teste
 
 Sem essas, viramos refém de mocks frágeis. Toda dependência de I/O,
-processo ou tempo é injetada via Protocol:
+processo ou tempo é injetada via interface Go:
 
-```python
-class SessionRuntime(Protocol):
-    async def spawn(self, worktree: Path, profile: PermissionProfile) -> JailHandle: ...
-    async def kill(self, handle: JailHandle) -> None: ...
+```go
+// internal/sandbox/runtime.go
+type Runtime interface {
+    Spawn(ctx context.Context, spec RuntimeSpec) (Handle, error)
+    Kill(ctx context.Context, h Handle) error
+}
 
-class ProcessSpawner(Protocol):
-    async def run(self, cmd: list[str], env: dict) -> ProcessHandle: ...
+// internal/sandbox/docker_ops.go
+type DockerOps interface {
+    Build(ctx context.Context, spec BuildSpec) error
+    Run(ctx context.Context, spec ContainerSpec) (string, error)
+    Stop(ctx context.Context, containerID string) error
+    Rm(ctx context.Context, containerID string) error
+    HealthStatus(ctx context.Context, containerID string) (string, error)
+    StreamLogs(ctx context.Context, containerID string, w io.Writer) error
+    // ...
+}
 
-class DockerRuntime(Protocol):
-    async def run_ephemeral(self, image: str, env: dict, ports: dict) -> ContainerHandle: ...
+// internal/events/bus.go
+type Emitter interface {
+    Emit(name string, payload any)
+}
 
-class Clock(Protocol):
-    def now(self) -> datetime: ...
-
-class HookSink(Protocol):
-    async def emit(self, event: HookEvent) -> None: ...
+// internal/git/ops.go
+type Ops interface {
+    AddWorktree(ctx context.Context, repoPath, target, branch string) error
+    // ...
+}
 ```
 
-- **Unit** usa `Fake*` deterministas em memória.
-- **Integration** usa implementações reais (`AiJailRuntime`,
-  `SubprocessSpawner`, `DockerSdkRuntime`) com testcontainers.
-- **E2E** usa tudo real, dentro de containers.
+- **Unit** usa fakes deterministas (`bootstrapFakeRuntime`,
+  `fakeDockerOps`, `FakeEmitter`, `fakeGit`) — todos em `*_test.go`.
+- **Integration** usa implementações reais (`sandbox.AijailRuntime`,
+  `sandbox.SubprocessDockerOps`) atrás de `//go:build integration`.
+- **E2E** roda o binary real (`cmd/jarvis-e2e-http`) via Playwright shim.
 
 ## 11. Roadmap em fases
 
@@ -210,22 +220,25 @@ Cada fase termina demonstrável + verde nas três camadas.
 | ~~F3~~ | **Cancelada** — fundida em F2; ver [ADR-0011](docs/adr/0011-f3-cancelada-merged-into-f2.md) | — |
 | **F4 — Backlog kanban** ✅ | Kanban unificado cross-project; criar/mover/discardar tasks; iniciar sessão de uma task; quick session cria task implícita | `Task`, kanban UI 5 colunas com `@dnd-kit`, `Session.task_id` NOT NULL, drawer lateral pra projects/worktrees. F4.m fechou gate de cobertura (auto-marker em `tests/conftest.py`) |
 | **F5 — Mapa de worktrees + multi-repo** ✅ | Drawer "Projetos & Worktrees": árvore task-grouped por projeto; multi-repo (1 task → N worktrees compartilham 1 sessão); worktrees auto-criadas ao iniciar sessão, auto-removidas em `done`/`discarded`; órfãs detectadas e removíveis | `Repository` model + auto-detect, `GitWorktreeOps`, `start_session` atomic 3-layer (FS+DB+WS), `task.branch` opcional, hard-break `POST /api/sessions {worktree_id}` |
-| **F6 — Run from Panel** ✅ | `▶ Run` no TaskCard sobe stack via `.orchestrator/run.yml` (services dict docker-compose-like); chips de URL clicáveis quando ready; SSE stream de logs por serviço; bootstrap de manifesto por sessão Claude efêmera quando falta | `RunInstance` task-scoped (1 ativa por task), Pydantic manifest parser, PortAllocator 31000-31999, `DockerOps` Protocol + Subprocess impl, atomic 3-layer rollback, file watcher pra bootstrap |
-| **F7 — Templates + perfis** ✅ | Templates frontend/backend/refactor/bugfix com perfil pré-aprovado aplicado no spawn; catálogo curado em `orchestrator/config/catalog.yml`; dropdown único no form de criar task | `Catalog` Pydantic + `load_catalog`, `GET /api/catalog`, `Task.template`/`permission_profile` populados; `AiJailRuntime.spawn` consome `claude_args` do catálogo; fallback yolo p/ tasks F4-F6 com NULL |
+| **F6 — Run from Panel** ✅ | `▶ Run` no TaskCard sobe stack via `.orchestrator/run.yml` (services dict docker-compose-like); chips de URL clicáveis quando ready; SSE stream de logs por serviço; bootstrap de manifesto por sessão Claude efêmera quando falta | `RunInstance` task-scoped (1 ativa por task), yaml.v3 manifest parser + `ManifestSpec.Validate`, PortAllocator 31000-31999, `DockerOps` Protocol + Subprocess impl, atomic 3-layer rollback, file watcher pra bootstrap |
+| **F7 — Templates + perfis** ✅ | Templates frontend/backend/refactor/bugfix com perfil pré-aprovado aplicado no spawn; catálogo curado em `internal/catalog/catalog.yml`; dropdown único no form de criar task | Go struct + `catalog.MustLoad` (//go:embed), `CatalogAPI.Get` Wails-bound, `Task.template`/`permission_profile` populados; `sandbox.AijailRuntime.Spawn` consome `claude_args` do catálogo; fallback yolo p/ tasks F4-F6 com NULL |
 | **F8 — Sessão master no sidebar** ✅ | Sessão Claude persistente global no sidebar web do J-arvis (xterm.js + PTY); manipula tasks via MCP tools (list/create/update/discard); persiste via `claude --resume` | `MasterSession` singleton + migration 0006; `MasterSessionRuntime` em PTY; MCP server JSON-RPC 2.0 via SDK `mcp`; WebSocket bridge com PtyMultiplexer fan-out; xterm.js + `@xterm/addon-fit` no UI |
 | **F9 — UI redesign (CIPHER)** ✅ | UI completa Tailwind v4 + shadcn/ui com identidade "CIPHER v2" (operator cyberpunk dark-only); HUD top bar com métricas live (CPU/MEM/RTT/uptime/alerts), AppHeader com shortcuts, StatusBar tmux-style, TaskDetailSheet (Sheet right + 4 tabs), MasterSidebar com operator chrome + RTT footer | `GET /api/health` (psutil); WS pong handler pra RTT; 8 card states via `deriveCardState`; Tailwind v4 + `@config` + tw-animate-css; design tokens em `tokens.css`; ADRs 0023-0025 |
+| **F10 — Go+Wails pivot** ✅ | Stack inteira migrada de Python+FastAPI pra Go 1.26 + Wails v2.12 com WebView embedando UI React do F9. Sessões persistentes (Worktrees/Sessions/Runs/Master/Bootstrap), MCP server interno pro master Claude, hooks via HTTP loopback. Binário único Go ~24MB. | `internal/{api,core,store,sandbox,events,git,hooks,localhttp,master,mcp,catalog}/`, Wails bindings in-process, modernc.org/sqlite + goose migrations, `internal/sandbox/runtime.go` interface, Wails-emitted events |
+| **F10.6 — Run from Panel (Go)** ✅ | Re-implementação de F6 em Go: `RunsService.StartRun` topo-sorted, healthcheck wait, rollback 3-layer; bootstrap por sessão Claude efêmera com fsnotify watcher; ports 31000-31999 com socket probe | `internal/core/{runs,manifest,port_allocator,bootstrap}.go`; `internal/sandbox/docker_ops.go` (subprocess); `internal/api/runs.go` LogsHandler SSE no localhttp |
+| **F10.7 — OS integration** ✅ | System tray (fyne.io/systray), close-to-tray lifecycle, single-instance D-Bus via Wails native, CLI `--focus` flag bindável via Super+J no DE | `internal/osintegration/{tray,cli,preflight,assets}.go`; Wails `SingleInstanceLock` + `HideWindowOnClose`; docs/os-integration/{hotkey-binding,tray-setup}.md |
 
-**MVP = F0 → F7.**
+**MVP = F0 → F10.** F0-F9 foram entregues na stack Python+FastAPI; F10 é a migração inteira pra Go+Wails (binário único). F10.8 (cleanup do Python deletado + packaging .deb/.AppImage) fecha o MVP.
 
 ## 12. Definition of Done por fase
 
 - [ ] Red→green→refactor em cada feature
-- [ ] Unit coverage 100% (pós-exclusões justificadas) no código novo
-- [ ] Toda rota nova com integration test usando testcontainer
-- [ ] Todo fluxo novo da UI com E2E
-- [ ] `make test-all` verde
+- [ ] Unit coverage saudável (sem metric-gaming) no código novo
+- [ ] Todo serviço novo com integration test (real fake de Runtime / DockerOps quando aplicável; `//go:build integration` pra testes que tocam Docker real)
+- [ ] Todo fluxo novo da UI com vitest unit + Playwright E2E quando aplicável
+- [ ] `make test` verde (`gofmt -l .` empty + `go vet` clean + `go test -race` + `cd ui && pnpm test`)
 - [ ] Sem warnings no output de teste
-- [ ] Demo manual executada no browser
+- [ ] Demo manual executada na janela Wails
 
 ## 13. Decisões registradas
 
@@ -236,7 +249,7 @@ criar novo ADR e atualizar `docs/adr/README.md`.**
 | Decisão | ADR | Escolha | Motivação |
 |---|---|---|
 | Plataforma | — | Linux only (MVP) | Alinhado com ai-jail e simplicidade |
-| Python + daemon | [0002](docs/adr/0002-stack-do-daemon.md) | 3.13 + FastAPI + SQLAlchemy 2 async + Alembic | Stack ortodoxa, ecossistema maduro |
+| Stack do daemon (era Python) | [0002](docs/adr/0002-stack-do-daemon.md) | Python 3.13 + FastAPI + SQLAlchemy 2 async + Alembic | **Superseded em F10** pela pivotação Go+Wails — ver `docs/superpowers/specs/2026-05-12-pivot-go-wails-native-design.md` |
 | UI | [0003](docs/adr/0003-stack-da-ui.md) | Vite 6 + React 19 + TanStack Query + Zustand | Cache fino + estado local sem provider hell |
 | Sandbox | [0001](docs/adr/0001-sandbox-via-ai-jail-externo.md) | ai-jail externo (Akita) sob `SessionRuntime` | Não reinventar kernel-isolation; trocável |
 | TDD + cobertura | [0004](docs/adr/0004-tdd-iron-law-100-cobertura.md) | Iron law, 3 camadas a 100% | Confiabilidade sem auditoria humana constante |
