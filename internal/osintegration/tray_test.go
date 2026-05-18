@@ -244,3 +244,32 @@ func TestTrayController_OnExitFiresOnQuitWhenSteadyStateDidNot(t *testing.T) {
 		t.Error("end() never called by Stop()")
 	}
 }
+
+func TestTrayController_OnExitNoOpAfterSteadyStateQuit(t *testing.T) {
+	var quits int32
+	fact := newFakeTrayFactory()
+	ctl := NewTrayControllerForTest(
+		func() {},
+		func() { atomic.AddInt32(&quits, 1) },
+		fact.Make(),
+	)
+	ctl.Start(context.Background())
+
+	// Click Quit (steady-state path A — mQuit wins the swap).
+	fact.lib.ItemByTitle("Quit").clickCh <- struct{}{}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && atomic.LoadInt32(&quits) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if atomic.LoadInt32(&quits) != 1 {
+		t.Fatalf("after click: onQuit = %d, want 1", atomic.LoadInt32(&quits))
+	}
+
+	// Now call Stop() — simulates OnShutdown running after the menu Quit.
+	// onExit fires but swap finds quitInProgress=true → no-op.
+	ctl.Stop()
+
+	if got := atomic.LoadInt32(&quits); got != 1 {
+		t.Errorf("after Stop(): onQuit = %d, want still 1 (onExit must be no-op)", got)
+	}
+}
