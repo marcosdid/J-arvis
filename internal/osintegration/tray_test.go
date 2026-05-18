@@ -161,5 +161,28 @@ func TestTrayController_StartWiresMenuItems(t *testing.T) {
 	}
 }
 
-// Suppress "imported and not used" for time during TDD red phase — used by 5.2/5.3.
-var _ = time.Now
+func TestTrayController_ShowClickInvokesOnShow(t *testing.T) {
+	var shows int32
+	fact := newFakeTrayFactory()
+	ctl := NewTrayControllerForTest(
+		func() { atomic.AddInt32(&shows, 1) },
+		func() {},
+		fact.Make(),
+	)
+	ctl.Start(context.Background())
+
+	mShow := fact.lib.ItemByTitle("Mostrar janela")
+	if mShow == nil {
+		t.Fatal("Mostrar janela not in menu")
+	}
+
+	mShow.clickCh <- struct{}{}
+	// Wait briefly for the goroutine to process.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && atomic.LoadInt32(&shows) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if atomic.LoadInt32(&shows) != 1 {
+		t.Errorf("onShow called %d times, want 1", atomic.LoadInt32(&shows))
+	}
+}
