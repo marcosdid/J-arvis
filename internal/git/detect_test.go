@@ -53,6 +53,47 @@ func TestDetectRepos_MultiRepo_Sorted(t *testing.T) {
 	}
 }
 
+// Hybrid layout: basePath is itself a git repo AND has children that are
+// independent git repos. Real case: gcb-hub has a "context" repo at the root
+// (docs/instructions) plus backend/ and frontend/ as separate repos. Detect
+// must return ALL of them — basePath as "." plus each child as its own
+// SubPath — so the project gets worktrees for every repo.
+func TestDetectRepos_HybridRootPlusChildren(t *testing.T) {
+	base := t.TempDir()
+	rootProj := mkGitDir(t, filepath.Dir(base), filepath.Base(base)+"-root")
+	// We can't easily make t.TempDir() itself the repo, so use a fresh dir
+	// where we control the layout fully.
+	hybrid := filepath.Join(rootProj, "..", "hybrid")
+	if err := os.MkdirAll(filepath.Join(hybrid, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir root .git: %v", err)
+	}
+	mkGitDir(t, hybrid, "backend")
+	mkGitDir(t, hybrid, "frontend")
+	// A child without .git should be ignored.
+	if err := os.MkdirAll(filepath.Join(hybrid, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+
+	specs, err := DetectRepos(hybrid)
+	if err != nil {
+		t.Fatalf("DetectRepos: %v", err)
+	}
+	if len(specs) != 3 {
+		t.Fatalf("want 3 specs, got %d: %+v", len(specs), specs)
+	}
+	// Sorted by name. Root "hybrid" comes alphabetically between "backend" and "frontend".
+	want := []struct{ Name, SubPath string }{
+		{"backend", "backend"},
+		{"frontend", "frontend"},
+		{"hybrid", "."},
+	}
+	for i, w := range want {
+		if specs[i].Name != w.Name || specs[i].SubPath != w.SubPath {
+			t.Errorf("spec[%d]: got %+v, want %+v", i, specs[i], w)
+		}
+	}
+}
+
 func TestDetectRepos_GitlinkSubmoduleSkipped(t *testing.T) {
 	base := t.TempDir()
 	mkGitDir(t, base, "real-repo")

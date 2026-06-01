@@ -42,6 +42,15 @@ func (f *fakeProjectsService) Delete(_ context.Context, id string) error {
 	return store.ErrProjectNotFound
 }
 
+func (f *fakeProjectsService) RescanRepositories(_ context.Context, id string) (*store.Project, error) {
+	for i := range f.created {
+		if f.created[i].ID == id {
+			return &f.created[i], nil
+		}
+	}
+	return nil, store.ErrProjectNotFound
+}
+
 type errProjectsService struct{ err error }
 
 func (e *errProjectsService) List(_ context.Context) ([]store.Project, error) { return nil, e.err }
@@ -49,6 +58,9 @@ func (e *errProjectsService) Create(_ context.Context, _ core.CreateProjectInput
 	return nil, e.err
 }
 func (e *errProjectsService) Delete(_ context.Context, _ string) error { return e.err }
+func (e *errProjectsService) RescanRepositories(_ context.Context, _ string) (*store.Project, error) {
+	return nil, e.err
+}
 
 func TestProjectsAPI_CreateDelegatesToService(t *testing.T) {
 	svc := &fakeProjectsService{}

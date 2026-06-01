@@ -8,6 +8,7 @@ import { RunStatus } from './RunStatus';
 vi.mock('../lib/api', () => ({
   api: {
     getActiveRun: vi.fn(),
+    getLatestRun: vi.fn(),
     startRun: vi.fn(),
     stopRun: vi.fn(),
     bootstrapManifest: vi.fn(),
@@ -43,6 +44,7 @@ function makeRun(overrides: Partial<Run> = {}): Run {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  (api.getLatestRun as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -88,6 +90,23 @@ describe('RunStatus', () => {
     await waitFor(() =>
       expect(screen.getByText(/build error: missing Dockerfile/)).toBeDefined(),
     );
+  });
+
+  it('shows "última run" failed alert when no active run but the latest run failed', async () => {
+    (api.getActiveRun as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('HTTP 404: no active run'),
+    );
+    (api.getLatestRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeRun({
+        status: 'failed',
+        ended_at: '2026-01-01T01:00:00Z',
+        error_message: 'seed crashed',
+      }),
+    );
+    wrap();
+    expect(await screen.findByText(/última run: seed crashed/)).toBeDefined();
+    // ainda oferece o botão de Run pra tentar de novo
+    expect(screen.getByRole('button', { name: /run-start/ })).toBeDefined();
   });
 
   it('shows ▶ Run button again when status stopped', async () => {

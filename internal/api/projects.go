@@ -13,6 +13,7 @@ type ProjectsService interface {
 	List(ctx context.Context) ([]store.Project, error)
 	Create(ctx context.Context, in core.CreateProjectInput) (*store.Project, error)
 	Delete(ctx context.Context, id string) error
+	RescanRepositories(ctx context.Context, projectID string) (*store.Project, error)
 }
 
 type ProjectsAPI struct {
@@ -33,4 +34,8 @@ func (a *ProjectsAPI) Create(in core.CreateProjectInput) (*store.Project, error)
 
 func (a *ProjectsAPI) Delete(id string) error {
 	return a.svc.Delete(context.Background(), id)
+}
+
+func (a *ProjectsAPI) RescanRepositories(id string) (*store.Project, error) {
+	return a.svc.RescanRepositories(context.Background(), id)
 }

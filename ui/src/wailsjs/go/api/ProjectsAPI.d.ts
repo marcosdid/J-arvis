@@ -8,3 +8,5 @@ export function Create(arg1:core.CreateProjectInput):Promise<store.Project>;
 export function Delete(arg1:string):Promise<void>;
 
 export function List():Promise<Array<store.Project>>;
+
+export function RescanRepositories(arg1:string):Promise<store.Project>;

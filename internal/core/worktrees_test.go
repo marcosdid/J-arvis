@@ -27,12 +27,20 @@ func setupSyncFixture(t *testing.T) (
 	fake := newFakeGit()
 	bus := &events.FakeEmitter{}
 	svc := NewWorktreesService(
-		store.NewWorktreesRepo(db), reposRepo, projectsRepo, fake, bus,
+		store.NewWorktreesRepo(db), reposRepo, projectsRepo, store.NewTasksRepo(db), fake, bus,
 	)
 	return db, p.ID, created, fake, bus, svc
 }
 
-func TestSyncProjectWorktrees_DiscoversOrphan(t *testing.T) {
+// Sync must NOT auto-import worktrees that exist in the git repo but are not
+// already tracked in the DB. Pre-existing user worktrees (feature branches,
+// histórias, etc.) should remain invisible to J-arvs — only worktrees J-arvs
+// itself created via CreateForTask should be reconciled.
+//
+// Without this filter, a user with 32 ongoing feature worktrees gets 32 fake
+// "orphans" in the UI and clicking the ✕ on any of them silently removes
+// their working branch.
+func TestSyncProjectWorktrees_IgnoresExternalWorktrees(t *testing.T) {
 	_, projectID, _, fake, bus, svc := setupSyncFixture(t)
 	branch := "main"
 	fake.ListResults["/tmp/proj"] = []jgit.WorktreeInfo{
@@ -43,17 +51,13 @@ func TestSyncProjectWorktrees_DiscoversOrphan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	if len(wts) != 2 {
-		t.Errorf("want 2 worktrees, got %d", len(wts))
+	if len(wts) != 0 {
+		t.Errorf("expected 0 worktrees (none in DB), got %d: %+v", len(wts), wts)
 	}
-	created := 0
 	for _, c := range bus.Calls {
 		if c.Name == "worktree.created" {
-			created++
+			t.Errorf("Sync should not emit worktree.created for external worktrees, got: %+v", c)
 		}
-	}
-	if created != 2 {
-		t.Errorf("expected 2 worktree.created emits, got %d (calls: %+v)", created, bus.Calls)
 	}
 }
 

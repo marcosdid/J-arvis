@@ -97,6 +97,46 @@ func TestRunsRepo_ListActive_OnlyReturnsActive(t *testing.T) {
 	}
 }
 
+// GetLatestByTask returns the most recent run for a task regardless of state.
+// Used by the UI to surface the failure of a finished run — otherwise once
+// `ended_at` is set the run disappears from useRun (which filters on active)
+// and the user sees "▶ Run" again with no indication of what happened.
+func TestRunsRepo_GetLatestByTask_ReturnsMostRecentAny(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRunsRepo(db)
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+
+	old := time.Now().Add(-2 * time.Hour)
+	mid := time.Now().Add(-1 * time.Hour)
+	newT := time.Now()
+	_ = repo.Insert(context.Background(), Run{ID: "old", TaskID: "t1", Status: "stopped", Cwd: "/x", StartedAt: old})
+	_ = repo.MarkEnded(context.Background(), "old", "stopped", "")
+	_ = repo.Insert(context.Background(), Run{ID: "mid", TaskID: "t1", Status: "failed", Cwd: "/x", StartedAt: mid})
+	_ = repo.MarkFailed(context.Background(), "mid", "boom")
+	_ = repo.Insert(context.Background(), Run{ID: "new", TaskID: "t1", Status: "pending", Cwd: "/x", StartedAt: newT})
+
+	latest, err := repo.GetLatestByTask(context.Background(), "t1")
+	if err != nil {
+		t.Fatalf("GetLatestByTask: %v", err)
+	}
+	if latest == nil || latest.ID != "new" {
+		t.Errorf("latest=%+v, want id=new", latest)
+	}
+}
+
+func TestRunsRepo_GetLatestByTask_NilWhenNoRuns(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRunsRepo(db)
+	seedProjectAndTaskForRuns(t, db, "p1", "t1")
+	latest, err := repo.GetLatestByTask(context.Background(), "t1")
+	if err != nil {
+		t.Fatalf("GetLatestByTask: %v", err)
+	}
+	if latest != nil {
+		t.Errorf("latest=%+v, want nil", latest)
+	}
+}
+
 func TestRunsRepo_UpdateContainerIDs(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewRunsRepo(db)

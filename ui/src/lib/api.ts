@@ -9,6 +9,7 @@ import * as SessionsBinding from '../wailsjs/go/api/SessionsAPI';
 import * as CatalogBinding from '../wailsjs/go/api/CatalogAPI';
 import * as RunsBinding from '../wailsjs/go/api/RunsAPI';
 import * as BootstrapBinding from '../wailsjs/go/api/BootstrapAPI';
+import * as AppBinding from '../wailsjs/go/main/App';
 
 export type Repository = {
   id: string;
@@ -227,12 +228,30 @@ function notFound<T>(): Promise<T> {
   return Promise.reject(new Error('HTTP 404: not implemented in F10 Block A'));
 }
 
+// Wails surfaces Go `error` returns as plain strings to JS rejections, not
+// `Error` instances. Anything downstream that accesses `.message` ends up
+// empty. Coerce here so the contract `(reject value) is Error` always holds.
+function coerceWailsError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  if (typeof err === 'string') return new Error(err);
+  if (err && typeof err === 'object') {
+    const obj = err as { message?: unknown };
+    if (typeof obj.message === 'string' && obj.message) return new Error(obj.message);
+  }
+  return new Error(String(err));
+}
+
 export const api = {
+  // Dialogs (native folder picker via Wails runtime)
+  chooseDirectory: (): Promise<string> => AppBinding.ChooseDirectory(),
+
   // Projects (F10.2)
   listProjects: async (): Promise<Project[]> => (await Projects.List()).map(toProject),
   createProject: async (name: string, path: string): Promise<Project> =>
     toProject(await Projects.Create({ name, path })),
   deleteProject: (id: string): Promise<void> => Projects.Delete(id),
+  rescanProjectRepos: async (id: string): Promise<Project> =>
+    toProject(await Projects.RescanRepositories(id)),
 
   // Tasks (F10.2)
   listTasks: async (projectIds?: string[]): Promise<Task[]> =>
@@ -302,11 +321,15 @@ export const api = {
     ),
   startTaskSession: (_taskId: string): Promise<Session> => notFound<Session>(),
   startRun: async (taskId: string): Promise<StartRunResult> => {
-    const raw = await RunsBinding.Start(taskId);
-    return {
-      run: raw.run != null ? toRun(raw.run) : null,
-      bootstrap: raw.bootstrap != null ? { reason: raw.bootstrap.reason } : null,
-    };
+    try {
+      const raw = await RunsBinding.Start(taskId);
+      return {
+        run: raw.run != null ? toRun(raw.run) : null,
+        bootstrap: raw.bootstrap != null ? { reason: raw.bootstrap.reason } : null,
+      };
+    } catch (err) {
+      throw coerceWailsError(err);
+    }
   },
   getActiveRun: async (taskId: string): Promise<Run> => {
     // Backend returns ErrNotFound when nenhuma run ativa; Wails surfaces isso
@@ -321,6 +344,10 @@ export const api = {
       }
       throw err;
     }
+  },
+  getLatestRun: async (taskId: string): Promise<Run | null> => {
+    const v = await RunsBinding.GetLatest(taskId);
+    return v == null ? null : toRun(v);
   },
   stopRun: (runId: string): Promise<void> => RunsBinding.Stop(runId).then(() => undefined),
   getRunLogsEventSourceURL: async (runId: string, service: string): Promise<string> => {

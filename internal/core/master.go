@@ -126,7 +126,10 @@ func (s *MasterService) Start(ctx context.Context) (*MasterSession, error) {
 	if err := sandbox.WriteMasterSettings(s.masterCwd, mcpURL, s.mcpToken); err != nil {
 		return nil, fmt.Errorf("write master settings: %w", err)
 	}
-	claudeArgs := []string{"--dangerously-skip-permissions", "--resume", sessionID}
+	// Master session always spawns claude fresh. The UUID in sessionID is
+	// the jarvis-side identifier for this singleton; claude generates its
+	// own conversation ID internally and we don't try to resume it.
+	claudeArgs := []string{"--dangerously-skip-permissions"}
 	mcpPort := portFromURL(mcpURL)
 	if err := sandbox.WriteAijailConfig(s.masterCwd, claudeArgs, []int{mcpPort}); err != nil {
 		return nil, fmt.Errorf("write master .ai-jail: %w", err)

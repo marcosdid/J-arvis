@@ -44,6 +44,15 @@ export function ProjectNode({ project, onError }: Props) {
     },
   });
 
+  const rescan = useMutation({
+    mutationFn: () => api.rescanProjectRepos(project.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.projects }),
+    onError: (err: unknown) => {
+      const msg = (err as Error).message ?? String(err);
+      onError(translateError(msg));
+    },
+  });
+
   const allWts: Worktree[] = wts.data ?? [];
   const allTasks: Task[] = tasks.data ?? [];
   const orphans = allWts.filter((w) => w.is_orphan);
@@ -80,6 +89,15 @@ export function ProjectNode({ project, onError }: Props) {
         </button>
         <strong>{project.name}</strong>
         <span className="meta">{repoCountLabel} · {taskLabel}</span>
+        <button
+          type="button"
+          aria-label={`rescan-${project.name}`}
+          onClick={() => rescan.mutate()}
+          disabled={rescan.isPending}
+          title="Re-detectar repositórios no disco"
+        >
+          {rescan.isPending ? '↻ ...' : '↻'}
+        </button>
         <button
           type="button"
           aria-label={`delete-${project.name}`}

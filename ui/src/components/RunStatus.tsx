@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import { useRun, useStartRun, useStopRun } from '../hooks/useRun';
+import { useLatestRun, useRun, useStartRun, useStopRun } from '../hooks/useRun';
 import { useBootstrapProposedStore } from '../stores/bootstrapProposed';
 import { BootstrapModal } from './dialogs/BootstrapModal';
 
@@ -20,6 +20,7 @@ type Props = { taskId: string };
  */
 export function RunStatus({ taskId }: Props) {
   const run = useRun(taskId);
+  const latestRun = useLatestRun(taskId);
   const startRun = useStartRun(taskId);
   const stopRun = useStopRun(taskId);
   const [bootstrapOpen, setBootstrapOpen] = useState(false);
@@ -42,8 +43,6 @@ export function RunStatus({ taskId }: Props) {
         if (result.bootstrap?.reason === 'manifest_missing') {
           setBootstrapOpen(true);
         }
-        // result.run != null → normal flow; the useRun query will refetch
-        // (already wired in useStartRun.onSuccess).
       },
     });
   };
@@ -53,15 +52,32 @@ export function RunStatus({ taskId }: Props) {
   }
   const data = run.data;
   if (!data) {
+    const last = latestRun.data;
+    const lastFailed = last?.status === 'failed';
     return (
       <div className="run-status" data-status="idle">
+        {lastFailed && (
+          <div
+            data-status="failed"
+            className="text-xs text-sem-error font-mono mb-1"
+            role="alert"
+            title={last?.error_message ?? 'falha'}
+          >
+            ✗ última run: {last?.error_message ?? 'falha'}
+          </div>
+        )}
+        {startRun.isError && (
+          <div className="text-xs text-sem-error font-mono mb-1" role="alert">
+            ✗ {startRun.error.message?.trim() || 'falha ao iniciar run'}
+          </div>
+        )}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onStart(); }}
           disabled={startRun.isPending}
           aria-label={`run-start-${taskId}`}
         >
-          ▶ Run
+          {startRun.isPending ? '◐ starting…' : '▶ Run'}
         </button>
         {bootstrapOpen && (
           <BootstrapModal

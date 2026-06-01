@@ -6,6 +6,10 @@ export function Get(arg1) {
   return window['go']['api']['RunsAPI']['Get'](arg1);
 }
 
+export function GetLatest(arg1) {
+  return window['go']['api']['RunsAPI']['GetLatest'](arg1);
+}
+
 export function LocalHTTPBase() {
   return window['go']['api']['RunsAPI']['LocalHTTPBase']();
 }

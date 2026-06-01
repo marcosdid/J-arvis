@@ -55,7 +55,7 @@ export function App() {
   const activeCount = (tasks.data ?? []).filter((t) => t.state === 'in_progress').length;
 
   return (
-    <div className="grid grid-cols-[1fr_400px] h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden">
       <AppShell
         projectsCount={projectsCount}
         tasksCount={tasksCount}

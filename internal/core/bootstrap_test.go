@@ -160,7 +160,7 @@ func newBootstrapTestEnv(t *testing.T, opts ...bootstrapEnvOpt) *bootstrapTestEn
 	if cfg.gitAddWorktreeErr != nil {
 		gitOps.AddErrors["*"] = cfg.gitAddWorktreeErr
 	}
-	wtSvc := NewWorktreesService(wtsRepo, reposRepo, projectsRepo, gitOps, fake)
+	wtSvc := NewWorktreesService(wtsRepo, reposRepo, projectsRepo, tasksRepo, gitOps, fake)
 
 	svc := NewBootstrapService(runtime, wtSvc, wtsRepo, tasksRepo, cat, fake)
 	return &bootstrapTestEnv{
@@ -286,6 +286,18 @@ func TestStart_HappyPath(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(env.worktree, ".ai-jail")); err != nil {
 		t.Errorf(".ai-jail not written: %v", err)
+	}
+
+	// The bootstrap claude must start with an auto-trigger message so it
+	// reads BOOTSTRAP_PROMPT.md without the user having to type anything.
+	// We verify by inspecting the .ai-jail command — its last arg should
+	// reference the prompt file.
+	aijailData, err := os.ReadFile(filepath.Join(env.worktree, ".ai-jail"))
+	if err != nil {
+		t.Fatalf("read .ai-jail: %v", err)
+	}
+	if !strings.Contains(string(aijailData), "BOOTSTRAP_PROMPT.md") {
+		t.Errorf(".ai-jail missing auto-trigger message referencing BOOTSTRAP_PROMPT.md:\n%s", string(aijailData))
 	}
 
 	// Spawn called once with correct cwd

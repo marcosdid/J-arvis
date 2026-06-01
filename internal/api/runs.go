@@ -19,6 +19,7 @@ type runsService interface {
 	StartRun(ctx context.Context, taskID string) (*store.Run, error)
 	StopRun(ctx context.Context, runID string) error
 	GetActiveByTask(ctx context.Context, taskID string) (*store.Run, error)
+	GetLatestByTask(ctx context.Context, taskID string) (*store.Run, error)
 	ContainerIDFor(ctx context.Context, runID, service string) (string, error)
 	StreamLogs(ctx context.Context, containerID string, w io.Writer) error
 }
@@ -99,6 +100,21 @@ func (a *RunsAPI) Get(taskID string) (RunView, error) {
 		return RunView{}, err
 	}
 	return toRunView(run), nil
+}
+
+// GetLatest returns the most recent run for a task (any status). The UI uses
+// this to surface failed runs that ActiveByTask hides (since failed runs
+// have ended_at set and disappear from useRun).
+func (a *RunsAPI) GetLatest(taskID string) (*RunView, error) {
+	run, err := a.svc.GetLatestByTask(context.Background(), taskID)
+	if err != nil {
+		return nil, err
+	}
+	if run == nil {
+		return nil, nil
+	}
+	view := toRunView(run)
+	return &view, nil
 }
 
 func (a *RunsAPI) Stop(runID string) error {

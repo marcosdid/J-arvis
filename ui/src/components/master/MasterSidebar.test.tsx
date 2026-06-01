@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the Wails MasterAPI binding
@@ -23,15 +23,30 @@ vi.mock('../../wailsjs/runtime/runtime', () => ({
   EventsOff: (name: string) => { delete eventHandlers[name]; },
 }));
 
-// Mock xterm so we don't need a real DOM terminal
+// Mock xterm so we don't need a real DOM terminal.
+// Tracks lifecycle so tests can assert that the Terminal is constructed exactly
+// once and that its DOM contents (the simulated canvas marker) survive UI toggles.
+const terminalLifecycle = { constructed: 0, disposed: 0 };
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
+    constructor() { terminalLifecycle.constructed++; }
     write() {}
-    open() {}
+    open(el: HTMLElement) {
+      // Simulate xterm injecting its rendering surface into the container so
+      // the test can detect when React tears the container down.
+      const marker = document.createElement('div');
+      marker.setAttribute('data-testid', 'xterm-canvas');
+      el.appendChild(marker);
+    }
     onData() {}
     loadAddon() {}
-    dispose() {}
+    dispose() { terminalLifecycle.disposed++; }
     clear() {}
+    attachCustomKeyEventHandler() {}
+    hasSelection() { return false; }
+    getSelection() { return ''; }
+    clearSelection() {}
+    paste() {}
   },
 }));
 vi.mock('@xterm/addon-fit', () => ({
@@ -44,6 +59,8 @@ describe('MasterSidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.keys(eventHandlers).forEach((k) => delete eventHandlers[k]);
+    terminalLifecycle.constructed = 0;
+    terminalLifecycle.disposed = 0;
   });
 
   it('auto-recovers on master.exit{early_exit:true}', async () => {
@@ -61,6 +78,14 @@ describe('MasterSidebar', () => {
 
     // Expect a second Start triggered by auto-recovery
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('starts the master subprocess and mounts the terminal exactly once on first render', async () => {
+    startMock.mockResolvedValue({ running: true, pid: 1, session_id: 'sess-1' });
+    render(<MasterSidebar />);
+    await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
+    expect(terminalLifecycle.constructed).toBe(1);
+    expect(screen.getByTestId('xterm-canvas')).toBeInTheDocument();
   });
 
   it('does not auto-recover on master.exit with early_exit:false', async () => {

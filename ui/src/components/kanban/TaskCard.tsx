@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { api, type Task, type Project } from '../../lib/api';
 import { projectColor } from '../../lib/projectColor';
 import { queryKeys } from '../../lib/query-keys';
+import { formatRelativeTime } from '../../lib/relativeTime';
 import { useCatalog } from '../../hooks/useCatalog';
 import { useRun } from '../../hooks/useRun';
 import { useSandboxHealth } from '../../hooks/useSandboxHealth';
@@ -14,6 +15,21 @@ import { RunStatus } from '../RunStatus';
 import { SessionPanel } from '../sessions/SessionPanel';
 import { SessionStatusChip } from '../sessions/SessionStatusChip';
 import { deriveCardState } from './taskCardState';
+
+const TEMPLATE_COLORS: Record<string, string> = {
+  backend: 'var(--semantic-backend)',
+  frontend: 'var(--semantic-frontend)',
+  bugfix: 'var(--semantic-bugfix)',
+  refactor: 'var(--semantic-refactor)',
+  review: 'var(--semantic-review)',
+  ops: 'var(--text-subtle)',
+  research: 'var(--accent-info)',
+};
+
+function templateColor(name: string | null): string {
+  if (!name) return 'var(--text-subtle)';
+  return TEMPLATE_COLORS[name] ?? 'var(--text-subtle)';
+}
 
 type Props = {
   task: Task;
@@ -63,6 +79,11 @@ export function TaskCard({ task, projects, onClick }: Props) {
     },
   });
 
+  const projName = project?.name ?? task.project_id.slice(0, 6);
+  const projHue = projectColor(task.project_id);
+  const shortId = task.id.replace(/-/g, '').slice(0, 4);
+  const relTime = formatRelativeTime(task.updated_at || task.created_at);
+
   return (
     <div
       ref={setNodeRef}
@@ -71,7 +92,7 @@ export function TaskCard({ task, projects, onClick }: Props) {
         transition,
       }}
       className={cn(
-        'bg-bg-elevated border border-border-subtle rounded-sm p-2 cursor-grab hover:border-border-mid transition-colors duration-[180ms] ease-out',
+        'group flex flex-col gap-3 bg-bg-elevated border border-border-subtle rounded-md px-4 py-3.5 cursor-grab hover:border-border-mid transition-colors duration-[180ms] ease-out',
         'data-[card-state=awaiting]:border-accent-attn data-[card-state=awaiting]:shadow-[0_0_8px_rgba(255,16,240,0.4)]',
         'data-[card-state=running]:border-accent-primary',
         'data-[card-state=error]:border-sem-error data-[card-state=error]:bg-sem-error/5',
@@ -83,50 +104,65 @@ export function TaskCard({ task, projects, onClick }: Props) {
       {...attributes}
       {...listeners}
     >
-      <div className="flex items-center gap-1 mb-1">
+      <header className="flex items-center justify-between gap-3">
         <span
-          className="inline-flex items-center gap-1 text-[0.65rem] tracking-wide"
-          style={{ backgroundColor: projectColor(task.project_id) }}
+          className="inline-flex items-center min-w-0 font-mono text-xs tracking-tight"
+          style={{ color: projHue }}
         >
-          ● {project?.name ?? task.project_id.slice(0, 6)}
+          <span className="truncate">● {projName}</span>
         </span>
-        <span className="font-mono text-[0.6rem] text-text-faint">
-          #{task.id.replace(/-/g, '').slice(0, 4)}
+        <span className="font-mono text-[11px] text-text-faint shrink-0">
+          #{shortId}
         </span>
-      </div>
-      <h4 className="font-display tracking-tight text-text-emphasis text-sm leading-snug">
+      </header>
+
+      <h4 className="font-display text-[15px] font-medium leading-snug text-text-title">
         {task.title}
       </h4>
-      {task.template && (
-        <span
-          data-template-name={task.template}
-          data-testid="template-badge"
-          className="inline-block text-[0.6rem] px-1 py-0.5 rounded-sm bg-bg-deep border border-border-subtle text-text-subtle"
-          title={templateDescription ?? task.template}
-        >
-          {task.template}
+
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs">
+        {task.template && (
+          <span
+            data-template-name={task.template}
+            data-testid="template-badge"
+            title={templateDescription ?? task.template}
+            className="inline-flex items-center gap-1.5 rounded-sm border border-border-subtle bg-bg-deep px-2 py-0.5 font-mono text-[11px] text-text-emphasis"
+          >
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rounded-[1px]"
+              style={{ backgroundColor: templateColor(task.template) }}
+            />
+            {task.template}
+          </span>
+        )}
+        {task.permission_profile && (
+          <span
+            data-permission-profile={task.permission_profile}
+            data-profile-color={profileColor(task.permission_profile)}
+            data-testid="profile-badge"
+            title={profileDescription ?? `Perfil: ${task.permission_profile}`}
+            className="inline-flex items-center rounded-sm border border-border-subtle bg-bg-deep px-2 py-0.5 font-mono text-[11px] text-text-subtle"
+          >
+            {task.permission_profile}
+          </span>
+        )}
+        {subTag && (
+          <span className="inline-flex items-center rounded-sm border border-border-subtle bg-bg-deep px-2 py-0.5 font-mono text-[11px] text-text-subtle">
+            {subTag}
+          </span>
+        )}
+        <span aria-hidden className="text-text-faint">·</span>
+        <span className="font-mono text-[11px] text-text-faint" title={task.updated_at}>
+          {relTime}
         </span>
-      )}
-      {task.permission_profile && (
-        <span
-          data-permission-profile={task.permission_profile}
-          data-profile-color={profileColor(task.permission_profile)}
-          data-testid="profile-badge"
-          className="inline-block text-[0.6rem] px-1 py-0.5 rounded-sm bg-bg-deep border border-border-subtle text-text-subtle"
-          title={profileDescription ?? `Perfil: ${task.permission_profile}`}
-        >
-          {task.permission_profile}
-        </span>
-      )}
-      {subTag && (
-        <span className="inline-block text-[0.6rem] px-1 py-0.5 rounded-sm bg-bg-deep border border-border-subtle text-text-subtle">
-          {subTag}
-        </span>
-      )}
+      </div>
+
       {(task.state === 'in_progress' || task.state === 'review') && (
         <RunStatus taskId={task.id} />
       )}
-      <div className="mt-2">
+
+      <footer className="flex items-center justify-between gap-2 pt-2 border-t border-border-subtle/60">
         {activeSession ? (
           <button
             type="button"
@@ -135,7 +171,7 @@ export function TaskCard({ task, projects, onClick }: Props) {
               e.stopPropagation();
               setPanelOpen(true);
             }}
-            className="text-xs flex items-center gap-2"
+            className="inline-flex items-center gap-2"
             data-testid="task-session-open"
           >
             <SessionStatusChip session={activeSession} />
@@ -150,13 +186,15 @@ export function TaskCard({ task, projects, onClick }: Props) {
             }}
             disabled={!sandboxAvailable || startMut.isPending}
             title={!sandboxAvailable ? sandboxReason : ''}
-            className="text-xs underline disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-accent-primary transition-opacity hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
             data-testid="task-session-start"
           >
-            ▶ Iniciar sessão
+            <span aria-hidden>▶</span>
+            <span>iniciar sessão</span>
           </button>
         )}
-      </div>
+      </footer>
+
       <SessionPanel taskId={task.id} open={panelOpen} onOpenChange={setPanelOpen} />
     </div>
   );

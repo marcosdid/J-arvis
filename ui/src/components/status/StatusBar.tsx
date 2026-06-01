@@ -17,7 +17,7 @@ export function StatusBar() {
     <footer
       role="status"
       aria-label="status bar"
-      className="flex justify-between items-center px-3 py-1 text-[0.62rem] tracking-wider border-t border-border-subtle bg-bg-deep text-text-subtle"
+      className="flex flex-nowrap justify-between items-center gap-2 px-3 py-1 text-[0.62rem] tracking-wider border-t border-border-subtle bg-bg-deep text-text-subtle whitespace-nowrap overflow-x-auto"
     >
       <div className="flex items-center gap-2">
         <StatusSeg label="state" value={stateLabel} tone={stateTone} />

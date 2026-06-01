@@ -78,7 +78,7 @@ func newSessionsServiceForTest(t *testing.T) (*SessionsService, *sql.DB, string)
 	bus := &events.FakeEmitter{}
 
 	// Reuse the package-level fakeGit defined in fake_git_test.go (created in F10.3).
-	wtSvc := NewWorktreesService(wtRepo, reposRepo, projectsRepo, newFakeGit(), bus)
+	wtSvc := NewWorktreesService(wtRepo, reposRepo, projectsRepo, tasksRepo, newFakeGit(), bus)
 	svc := NewSessionsService(
 		sessRepo, tasksRepo, wtRepo, projectsRepo, wtSvc,
 		newFakeRuntime(),

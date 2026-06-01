@@ -34,6 +34,9 @@ func (f *fakeRunsSvc) StopRun(_ context.Context, _ string) error { return nil }
 func (f *fakeRunsSvc) GetActiveByTask(_ context.Context, _ string) (*store.Run, error) {
 	return nil, nil
 }
+func (f *fakeRunsSvc) GetLatestByTask(_ context.Context, _ string) (*store.Run, error) {
+	return nil, nil
+}
 func (f *fakeRunsSvc) ContainerIDFor(_ context.Context, _ string, _ string) (string, error) {
 	return "", nil
 }

@@ -26,6 +26,18 @@ export function useRun(taskId: string) {
   });
 }
 
+/**
+ * Latest run (any status). Used to surface failed runs that `useRun` hides —
+ * once `ended_at` is set the active query returns null and the UI loses
+ * visibility of the failure reason.
+ */
+export function useLatestRun(taskId: string) {
+  return useQuery<Run | null>({
+    queryKey: queryKeys.runLatest(taskId),
+    queryFn: () => api.getLatestRun(taskId),
+  });
+}
+
 export function useStartRun(taskId: string) {
   const qc = useQueryClient();
   return useMutation<StartRunResult, Error>({
@@ -33,6 +45,7 @@ export function useStartRun(taskId: string) {
     onSuccess: (result) => {
       if (result.run) {
         qc.invalidateQueries({ queryKey: queryKeys.run(taskId) });
+        qc.invalidateQueries({ queryKey: queryKeys.runLatest(taskId) });
       }
       // bootstrap branch handled by the caller — they inspect result.bootstrap
     },

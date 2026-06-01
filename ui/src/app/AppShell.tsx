@@ -27,7 +27,7 @@ export function AppShell({
   children,
 }: Props) {
   return (
-    <div className="grid grid-rows-[auto_auto_auto_1fr_auto] h-screen overflow-hidden">
+    <div className="flex flex-col flex-1 min-w-0 h-screen overflow-hidden">
       <HudTopBar wsRtt={wsRtt} />
       <ErrorBanner />
       <AppHeader
@@ -38,7 +38,7 @@ export function AppShell({
         {...(onToggleProjects !== undefined && { onToggleProjects })}
         {...(onNewTask !== undefined && { onNewTask })}
       />
-      <main className="overflow-auto">{children}</main>
+      <main className="flex flex-col flex-1 min-h-0 overflow-hidden">{children}</main>
       <StatusBar />
     </div>
   );

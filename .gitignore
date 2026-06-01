@@ -35,3 +35,14 @@ coverage.out
 ui/test-results/
 ui/playwright-report/
 ui/e2e/.e2e-port
+
+# Ad-hoc build artifacts dropped in repo root (go build -o <name>)
+/escape
+/jarvis-e2e-http
+# Bare `go build ./cmd/<x>` drops the binary in CWD (repo root)
+/check-runs
+/cleanup-orphans
+# Runtime sandbox marker written by ai-jail at spawn
+.ai-jail
+# Throwaway spike notes
+f5-0-spike.txt

@@ -26,7 +26,7 @@ export function KanbanColumn({ name, tasks, projects, defaultProjectId, onCardCl
   return (
     <div
       ref={setNodeRef}
-      className="flex flex-col min-w-[260px] bg-bg-surface border border-border-subtle rounded-sm"
+      className="flex flex-col flex-1 min-w-[200px] bg-bg-surface border border-border-subtle rounded-sm"
       data-testid={`column-${name}`}
     >
       <h3 className="font-display tracking-[0.08em] text-text-emphasis uppercase text-xs px-3 py-2 border-b border-border-subtle bg-bg-deep">

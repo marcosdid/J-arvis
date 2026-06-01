@@ -75,6 +75,19 @@ func (r *RunsRepo) GetActiveByTask(ctx context.Context, taskID string) (*Run, er
 	return scanRun(row)
 }
 
+// GetLatestByTask returns the most recent run for the task regardless of
+// state (active, stopped, failed). Returns (nil, nil) when the task has no
+// runs at all.
+func (r *RunsRepo) GetLatestByTask(ctx context.Context, taskID string) (*Run, error) {
+	row := r.db.QueryRowContext(ctx,
+		runsSelect+" WHERE task_id = ? ORDER BY started_at DESC LIMIT 1", taskID)
+	run, err := scanRun(row)
+	if err != nil && errors.Is(err, ErrRunNotFound) {
+		return nil, nil
+	}
+	return run, err
+}
+
 func (r *RunsRepo) UpdateStatus(ctx context.Context, id, status string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE run_instances SET status = ? WHERE id = ?`, status, id)

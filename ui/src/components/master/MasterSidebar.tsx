@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { MasterHeader } from './MasterHeader';
 import { MasterFooter } from './MasterFooter';
 import { QuickCommands } from './QuickCommands';
+import { handleTerminalKeyEvent } from '../../lib/terminalClipboard';
 import * as MasterAPI from '../../wailsjs/go/api/MasterAPI';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 
@@ -33,6 +34,17 @@ export function MasterSidebar() {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(container);
+
+    term.attachCustomKeyEventHandler((ev) =>
+      handleTerminalKeyEvent(ev, {
+        hasSelection: () => term.hasSelection(),
+        getSelection: () => term.getSelection(),
+        clearSelection: () => term.clearSelection(),
+        writeText: (s) => navigator.clipboard?.writeText(s) ?? Promise.resolve(),
+        readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
+        paste: (s) => term.paste(s),
+      }),
+    );
 
     let disposed = false;
     const safeFit = (): void => {
@@ -146,7 +158,7 @@ export function MasterSidebar() {
   }, [sessionId]);
 
   return (
-    <aside className="flex flex-col h-full bg-bg-void border-l border-border-subtle" aria-label="master-session">
+    <aside className="flex flex-col shrink-0 w-[360px] h-screen bg-bg-void border-l border-border-subtle" aria-label="master-session">
       <MasterHeader
         pid={pid}
         sessionId={sessionId}

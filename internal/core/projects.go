@@ -65,6 +65,60 @@ func (s *ProjectsService) Create(ctx context.Context, in CreateProjectInput) (*s
 	return project, nil
 }
 
+// RescanRepositories re-runs DetectRepos on the project's path and inserts
+// any repositories that exist on disk but are missing from the DB. Idempotent:
+// no inserts and no events when everything is already in sync. Never deletes
+// existing rows (tasks/worktrees may reference them).
+//
+// Use case: a project was created when DetectRepos had limited heuristics, so
+// not all sub-repos were registered. The user adds repos to disk (or the
+// detect logic improves), and Rescan brings the DB in line without forcing
+// a delete+recreate of the project.
+func (s *ProjectsService) RescanRepositories(ctx context.Context, projectID string) (*store.Project, error) {
+	project, err := s.projects.Get(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	specs, err := jgit.DetectRepos(project.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	existing := map[string]struct{}{}
+	for _, r := range project.Repositories {
+		existing[r.SubPath] = struct{}{}
+	}
+
+	toAdd := make([]store.RepoSpecInput, 0, len(specs))
+	for _, spec := range specs {
+		if _, ok := existing[spec.SubPath]; ok {
+			continue
+		}
+		name := spec.Name
+		if spec.SubPath == "." {
+			name = project.Name
+		}
+		toAdd = append(toAdd, store.RepoSpecInput{Name: name, SubPath: spec.SubPath})
+	}
+
+	if len(toAdd) == 0 {
+		return project, nil
+	}
+
+	if _, err := s.repos.CreateBulk(ctx, project.ID, toAdd); err != nil {
+		return nil, fmt.Errorf("insert new repositories: %w", err)
+	}
+
+	// Re-fetch to get the fully hydrated repo list with assigned IDs.
+	refreshed, err := s.projects.Get(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	s.bus.Emit("project.updated", refreshed)
+	return refreshed, nil
+}
+
 // Delete refuses if the project still has tasks. Returns ProjectHasTasksError.
 func (s *ProjectsService) Delete(ctx context.Context, id string) error {
 	tasks, err := s.tasks.List(ctx, store.TaskFilters{ProjectIDs: []string{id}})

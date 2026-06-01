@@ -14,6 +14,7 @@ vi.mock('../../lib/api', async () => {
       listWorktrees: vi.fn(),
       listTasks: vi.fn(),
       deleteWorktree: vi.fn(),
+      chooseDirectory: vi.fn(),
     },
   };
 });
@@ -35,6 +36,7 @@ beforeEach(() => {
   vi.mocked(api.listTasks).mockResolvedValue([]);
   vi.mocked(api.deleteProject).mockResolvedValue(undefined);
   vi.mocked(api.createProject).mockResolvedValue({} as never);
+  vi.mocked(api.chooseDirectory).mockResolvedValue('');
   window.localStorage.clear();
 });
 
@@ -80,6 +82,25 @@ describe('ProjectsDrawer', () => {
     });
     await waitFor(() => expect(name.value).toBe(''));
     expect(path.value).toBe('');
+  });
+
+  it('browse button fills project-path with chosen directory', async () => {
+    vi.mocked(api.chooseDirectory).mockResolvedValueOnce('/home/u/code/repo');
+    wrap(<ProjectsDrawer open={true} onClose={() => {}} />);
+    const pathInput = screen.getByLabelText('project-path') as HTMLInputElement;
+    expect(pathInput.value).toBe('');
+    fireEvent.click(screen.getByLabelText('browse-project-path'));
+    await waitFor(() => expect(pathInput.value).toBe('/home/u/code/repo'));
+  });
+
+  it('browse leaves path untouched when user cancels (empty string)', async () => {
+    vi.mocked(api.chooseDirectory).mockResolvedValueOnce('');
+    wrap(<ProjectsDrawer open={true} onClose={() => {}} />);
+    const pathInput = screen.getByLabelText('project-path') as HTMLInputElement;
+    fireEvent.change(pathInput, { target: { value: '/preset' } });
+    fireEvent.click(screen.getByLabelText('browse-project-path'));
+    await waitFor(() => expect(api.chooseDirectory).toHaveBeenCalled());
+    expect(pathInput.value).toBe('/preset');
   });
 
   it('shows pt-BR toast bubbled from ProjectNode when delete fails', async () => {

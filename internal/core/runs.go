@@ -430,6 +430,10 @@ func (s *RunsService) GetActiveByTask(ctx context.Context, taskID string) (*stor
 	return s.repo.GetActiveByTask(ctx, taskID)
 }
 
+func (s *RunsService) GetLatestByTask(ctx context.Context, taskID string) (*store.Run, error) {
+	return s.repo.GetLatestByTask(ctx, taskID)
+}
+
 func (s *RunsService) CleanupForTask(ctx context.Context, taskID string) error {
 	run, err := s.repo.GetActiveByTask(ctx, taskID)
 	if err != nil || run == nil {

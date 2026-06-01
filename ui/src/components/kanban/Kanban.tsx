@@ -125,9 +125,9 @@ export function Kanban({ filters, onCardClick }: Props) {
 
   if (tasks.isLoading) {
     return (
-      <div className="flex gap-3 p-3 h-full overflow-x-auto" data-testid="kanban-loading">
+      <div className="flex gap-3 p-3 flex-1 min-h-0 overflow-x-auto" data-testid="kanban-loading">
         {COLUMNS.map((col) => (
-          <div key={col} className="flex flex-col gap-2 min-w-[200px]">
+          <div key={col} className="flex flex-col flex-1 gap-2 min-w-[200px]">
             {Array.from({ length: SKELETON_COUNT }, (_, i) => (
               <TaskCardSkeleton key={i} />
             ))}
@@ -139,7 +139,7 @@ export function Kanban({ filters, onCardClick }: Props) {
 
   if ((tasks.data ?? []).length === 0) {
     return (
-      <div className="flex items-center justify-center h-full" data-testid="kanban-empty-state">
+      <div className="flex items-center justify-center flex-1 min-h-0" data-testid="kanban-empty-state">
         <div className="border border-border-subtle p-8 text-center text-text-subtle relative">
           <pre className="text-text-faint text-xs leading-tight mb-3">
 {`┌─────────────────┐
@@ -166,7 +166,7 @@ export function Kanban({ filters, onCardClick }: Props) {
         </div>
       )}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <div className="flex gap-3 p-3 h-full overflow-x-auto">
+        <div className="flex gap-3 p-3 flex-1 min-h-0 overflow-x-auto">
           {COLUMNS.map((col) => (
             <KanbanColumn
               key={col}

@@ -8,5 +8,6 @@ export const queryKeys = {
   tasksForProject: (projectId: string) => ['tasks', { projectId }] as const,
   task: (taskId: string) => ['tasks', { id: taskId }] as const,
   run: (taskId: string) => ['runs', { taskId }] as const,
+  runLatest: (taskId: string) => ['runs', 'latest', { taskId }] as const,
   catalog: ['catalog'] as const,
 };

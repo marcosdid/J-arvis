@@ -7,6 +7,7 @@ import { queryKeys } from '../lib/query-keys';
 import {
   useBootstrapManifest,
   useCancelBootstrap,
+  useLatestRun,
   useRun,
   useStartRun,
   useStopRun,
@@ -15,6 +16,7 @@ import {
 vi.mock('../lib/api', () => ({
   api: {
     getActiveRun: vi.fn(),
+    getLatestRun: vi.fn(),
     startRun: vi.fn(),
     stopRun: vi.fn(),
     bootstrapManifest: vi.fn(),
@@ -71,6 +73,32 @@ describe('useRun', () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useRun('t1'), { wrapper: makeWrapper(qc) });
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+describe('useLatestRun', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns the latest run via api.getLatestRun', async () => {
+    const run = { id: 'r9', task_id: 't1', status: 'failed', error_message: 'boom' };
+    (api.getLatestRun as ReturnType<typeof vi.fn>).mockResolvedValue(run);
+    const qc = new QueryClient();
+    const { result } = renderHook(() => useLatestRun('t1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.getLatestRun).toHaveBeenCalledWith('t1');
+    expect(result.current.data).toEqual(run);
+  });
+
+  it('returns null when there is no run for the task yet', async () => {
+    (api.getLatestRun as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const qc = new QueryClient();
+    const { result } = renderHook(() => useLatestRun('t1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toBeNull();
   });
 });
 

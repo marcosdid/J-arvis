@@ -5,6 +5,8 @@ import {http} from '../models';
 
 export function Get(arg1:string):Promise<api.RunView>;
 
+export function GetLatest(arg1:string):Promise<api.RunView | null>;
+
 export function LocalHTTPBase():Promise<string>;
 
 export function LogsHandler():Promise<http.Handler>;

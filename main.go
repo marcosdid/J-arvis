@@ -84,7 +84,7 @@ func main() {
 
 	gitOps := jgit.NewSubprocessOps()
 	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
-	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, gitOps, lazyBus)
+	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, tasksRepo, gitOps, lazyBus)
 
 	claudeHome := os.Getenv("JARVIS_CLAUDE_HOME")
 	if claudeHome == "" {
@@ -234,7 +234,8 @@ func main() {
 		Width:  1400,
 		Height: 900,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets:     assets,
+			Middleware: noCacheMiddleware,
 		},
 		BackgroundColour: &options.RGBA{R: 3, G: 5, B: 3, A: 1},
 		OnStartup: func(c context.Context) {

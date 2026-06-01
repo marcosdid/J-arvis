@@ -61,7 +61,7 @@ describe('AppShell', () => {
     expect(main).toContainElement(screen.getByTestId('child-node'));
   });
 
-  it('renders StatusBar', () => {
+  it('renders StatusBar at the bottom of the kanban column', () => {
     render(<AppShell {...defaultProps}>content</AppShell>);
     expect(screen.getByTestId('mock-status-bar')).toBeInTheDocument();
   });
@@ -88,5 +88,15 @@ describe('AppShell', () => {
   it('renders ErrorBanner between HudTopBar and AppHeader', () => {
     render(<AppShell {...defaultProps}>content</AppShell>);
     expect(screen.getByTestId('mock-error-banner')).toBeInTheDocument();
+  });
+
+  it('uses h-screen on its root so its grid rows (including StatusBar) anchor to the viewport', () => {
+    // AppShell sits in App.tsx's grid-cols-[1fr_360px] alongside MasterSidebar.
+    // Both columns are 100vh tall, but `h-full` on a grid item with min-h-0
+    // can collapse below the track in WebKit. Explicit h-screen forces 100vh
+    // so the StatusBar (the last grid row) sticks to the bottom of the viewport.
+    const { container } = render(<AppShell {...defaultProps}>content</AppShell>);
+    const root = container.firstChild as HTMLElement;
+    expect(root.className).toMatch(/\bh-screen\b/);
   });
 });

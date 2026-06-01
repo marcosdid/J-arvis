@@ -137,7 +137,14 @@ func (b *BootstrapService) Start(ctx context.Context, taskID string) (*StartedBo
 	if err := os.WriteFile(promptPath, []byte(bootstrapPromptTemplate), 0o644); err != nil {
 		return nil, fmt.Errorf("write BOOTSTRAP_PROMPT.md: %w", err)
 	}
-	if err := sandbox.WriteAijailConfig(cwd, profile.ClaudeArgs, nil); err != nil {
+	// Pass an auto-trigger message as the last positional arg to `claude`.
+	// In interactive mode, claude treats the positional arg as the first user
+	// message — so the session starts with this message already submitted and
+	// the model begins working immediately, without the user having to type
+	// anything in the spawned terminal.
+	bootstrapArgs := append([]string{}, profile.ClaudeArgs...)
+	bootstrapArgs = append(bootstrapArgs, "Leia .orchestrator/BOOTSTRAP_PROMPT.md e siga as instruções pra gerar .orchestrator/run.yml.")
+	if err := sandbox.WriteAijailConfig(cwd, bootstrapArgs, nil); err != nil {
 		_ = os.Remove(promptPath)
 		return nil, fmt.Errorf("write .ai-jail: %w", err)
 	}

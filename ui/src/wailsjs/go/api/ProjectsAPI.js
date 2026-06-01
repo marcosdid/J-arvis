@@ -13,3 +13,7 @@ export function Delete(arg1) {
 export function List() {
   return window['go']['api']['ProjectsAPI']['List']();
 }
+
+export function RescanRepositories(arg1) {
+  return window['go']['api']['ProjectsAPI']['RescanRepositories'](arg1);
+}
