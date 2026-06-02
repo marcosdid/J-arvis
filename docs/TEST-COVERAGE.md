@@ -2,6 +2,8 @@
 
 Auditoria automatizada cruzando os 331 casos do [roteiro](TEST-ROTEIRO.md) contra os testes reais (e2e Playwright + unit/integration Go/vitest) e a capacidade do harness e2e.
 
+> **Atualização (harness wiring):** o shim e2e foi estendido com `/e2e/runs/*`, `/e2e/bootstrap/*`, `/e2e/catalog/get` e as fixtures `create-worktree`/`write-manifest`. Isso converteu casos antes ⛔harness-blocked em ✅covered-e2e: **RUN-01/02/22/23** (`runs-flow.spec.ts`, docker real) e **CAT-02/09** (`catalog-flow.spec.ts`). A tabela por-caso abaixo é o snapshot da auditoria original (pré-wiring) — considere esses IDs como covered-e2e agora. Suíte e2e atual: **31 specs (30 verdes + 1 skip)** em 8 arquivos. Ainda blocked sem nova infra: RUN com build/Dockerfile e healthcheck lento, bootstrap completo (precisa ai-jail+Claude), OS-* (nativo), e push de eventos WS ao vivo.
+
 ## Matriz
 
 | status | qtd | significado |
