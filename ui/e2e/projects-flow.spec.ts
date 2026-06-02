@@ -9,8 +9,8 @@ test.describe('projects + worktrees flow', () => {
     await page.getByRole('button', { name: /projects/i }).first().click();
     const name = `mono-${Date.now()}`;
     await page.getByLabel('project-name').fill(name);
-    await page.getByLabel('project-path').fill(path);
-    await page.getByRole('form', { name: 'add-project' }).getByRole('button').click();
+    await page.getByLabel('project-path', { exact: true }).fill(path);
+    await page.getByRole('form', { name: 'add-project' }).getByRole('button', { name: 'Adicionar projeto' }).click();
     const project = page.locator('section.project-node').filter({ hasText: name });
     await expect(project).toBeVisible({ timeout: 5_000 });
   });
@@ -25,8 +25,8 @@ test.describe('projects + worktrees flow', () => {
     await page.getByRole('button', { name: /projects/i }).first().click();
     const name = `multi-${Date.now()}`;
     await page.getByLabel('project-name').fill(name);
-    await page.getByLabel('project-path').fill(path);
-    await page.getByRole('form', { name: 'add-project' }).getByRole('button').click();
+    await page.getByLabel('project-path', { exact: true }).fill(path);
+    await page.getByRole('form', { name: 'add-project' }).getByRole('button', { name: 'Adicionar projeto' }).click();
     const project = page.locator('section.project-node').filter({ hasText: name });
     await expect(project).toBeVisible({ timeout: 5_000 });
   });
@@ -37,22 +37,23 @@ test.describe('projects + worktrees flow', () => {
     await page.getByRole('button', { name: /projects/i }).first().click();
     const name = `reject-${Date.now()}`;
     await page.getByLabel('project-name').fill(name);
-    await page.getByLabel('project-path').fill(bogus);
-    await page.getByRole('form', { name: 'add-project' }).getByRole('button').click();
+    await page.getByLabel('project-path', { exact: true }).fill(bogus);
+    await page.getByRole('form', { name: 'add-project' }).getByRole('button', { name: 'Adicionar projeto' }).click();
     await expect(page.locator('section.project-node').filter({ hasText: name })).toHaveCount(0, { timeout: 3_000 });
   });
 
-  test('listWorktrees via API after gitWorktreeAdd discovers orphan', async ({ page }) => {
+  test('external git worktree is NOT surfaced — J-arvs only tracks worktrees it created', async ({ page }) => {
     await openApp(page);
     const repoPath = await initGitFixture({ name: `orphan-${Date.now()}` });
     const port = e2ePort();
 
     const createRes = await page.request.post(`http://127.0.0.1:${port}/e2e/projects/create`, {
-      data: { name: `orphan-${Date.now()}`, path: repoPath },
+      data: { name: `ext-wt-${Date.now()}`, path: repoPath },
     });
     expect(createRes.ok()).toBeTruthy();
     const project = await createRes.json();
 
+    // The user adds a worktree OUTSIDE the J-arvs flow (their own feature branch).
     const wtPath = `/tmp/jarvis-wt-${Date.now()}`;
     await gitWorktreeAdd(repoPath, wtPath, 'feature/orphan');
 
@@ -61,10 +62,12 @@ test.describe('projects + worktrees flow', () => {
     });
     expect(listRes.ok()).toBeTruthy();
     const worktrees = await listRes.json();
-    const found = worktrees.find((w: any) => w.path === wtPath);
-    expect(found).toBeTruthy();
-    expect(found.branch).toBe('feature/orphan');
-    expect(found.is_orphan).toBe(true);
+
+    // F10.8 decision: externally-created worktrees stay invisible so the UI's ✕
+    // (which runs `git worktree remove`) can never destroy the user's own work.
+    // Only J-arvs-created worktrees — and its own failed-cleanup orphans — surface.
+    const found = worktrees.find((w: { path: string }) => w.path === wtPath);
+    expect(found).toBeUndefined();
   });
 
   test('discard task end-to-end (cleanup hook wired)', async ({ page }) => {

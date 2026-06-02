@@ -17,8 +17,8 @@ test('create a project via drawer, then create a task on kanban', async ({ page 
   const name = `e2e-project-${Date.now()}`;
   const path = await initGitFixture({ name });
   await page.getByLabel('project-name').fill(name);
-  await page.getByLabel('project-path').fill(path);
-  await page.getByRole('form', { name: 'add-project' }).getByRole('button').click();
+  await page.getByLabel('project-path', { exact: true }).fill(path);
+  await page.getByRole('form', { name: 'add-project' }).getByRole('button', { name: 'Adicionar projeto' }).click();
 
   // Project should appear in the list (filter to this run's name).
   await expect(page.locator('section.project-node').filter({ hasText: name })).toBeVisible({ timeout: 5_000 });
