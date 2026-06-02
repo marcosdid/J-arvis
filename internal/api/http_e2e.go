@@ -28,14 +28,26 @@ type E2EServer struct {
 	worktrees *WorktreesAPI
 	sessions  *SessionsAPI
 	master    *MasterAPI
+	runs      *RunsAPI
+	bootstrap *BootstrapAPI
+	catalog   *CatalogAPI
+	wtSvc     *core.WorktreesService
 	hookBase  string
 	tokenReg  *hooks.TokenRegistry
 	mu        sync.Mutex
 	listener  net.Listener
 }
 
-func NewE2EServer(tasks *TasksAPI, projects *ProjectsAPI, worktrees *WorktreesAPI, sessions *SessionsAPI, master *MasterAPI) *E2EServer {
-	return &E2EServer{tasks: tasks, projects: projects, worktrees: worktrees, sessions: sessions, master: master}
+func NewE2EServer(
+	tasks *TasksAPI, projects *ProjectsAPI, worktrees *WorktreesAPI,
+	sessions *SessionsAPI, master *MasterAPI, runs *RunsAPI,
+	bootstrap *BootstrapAPI, catalog *CatalogAPI, wtSvc *core.WorktreesService,
+) *E2EServer {
+	return &E2EServer{
+		tasks: tasks, projects: projects, worktrees: worktrees,
+		sessions: sessions, master: master, runs: runs,
+		bootstrap: bootstrap, catalog: catalog, wtSvc: wtSvc,
+	}
 }
 
 // SetHookBase tells the test harness where the hook routes live so simulate_hook
@@ -259,6 +271,116 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// ---- Run from Panel / Bootstrap / Catalog e2e wiring ----
+	mux.HandleFunc("POST /e2e/runs/start", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out, err := s.runs.Start(req.TaskID)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, out)
+	})
+	mux.HandleFunc("POST /e2e/runs/get", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out, err := s.runs.Get(req.TaskID)
+		if err != nil {
+			writeErr(w, 404, err) // no active run → UI maps to null
+			return
+		}
+		writeJSON(w, out)
+	})
+	mux.HandleFunc("POST /e2e/runs/get_latest", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out, err := s.runs.GetLatest(req.TaskID)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		if out == nil {
+			w.WriteHeader(http.StatusNoContent) // null latest → UI maps to null
+			return
+		}
+		writeJSON(w, out)
+	})
+	mux.HandleFunc("POST /e2e/runs/stop", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			RunID string `json:"run_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := s.runs.Stop(req.RunID); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /e2e/bootstrap/start", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out, err := s.bootstrap.Start(req.TaskID)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, out)
+	})
+	mux.HandleFunc("POST /e2e/bootstrap/cancel", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := s.bootstrap.Cancel(req.TaskID); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /e2e/catalog/get", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, s.catalog.Get())
+	})
+	mux.HandleFunc("POST /e2e/fixtures/create-worktree", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TaskID string `json:"task_id"`
+			Branch string `json:"branch"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		wts, err := s.wtSvc.CreateForTask(r.Context(), req.TaskID, req.Branch)
+		if err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, wts)
+	})
+	mux.HandleFunc("POST /e2e/fixtures/write-manifest", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Cwd  string `json:"cwd"`
+			YAML string `json:"yaml"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		dir := filepath.Join(req.Cwd, ".orchestrator")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		dest := filepath.Join(dir, "run.yml")
+		if err := os.WriteFile(dest, []byte(req.YAML), 0o644); err != nil {
+			writeErr(w, 500, err)
+			return
+		}
+		writeJSON(w, map[string]string{"manifest_path": dest})
 	})
 
 	mux.HandleFunc("POST /e2e/sessions/start", func(w http.ResponseWriter, r *http.Request) {

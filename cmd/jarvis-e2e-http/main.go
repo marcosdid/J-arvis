@@ -164,7 +164,9 @@ func main() {
 	masterAPI := api.NewMasterAPI(masterSvc, lazyBus)
 	defer func() { _ = masterSvc.Stop(context.Background()) }()
 
-	srv := api.NewE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI)
+	bootstrapAPI := api.NewBootstrapAPI(bootstrapSvc)
+	catalogAPI := api.NewCatalogAPI(catalogRoot)
+	srv := api.NewE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI, runsAPI, bootstrapAPI, catalogAPI, worktreesSvc)
 	// Wire the hook proxy + token reverse-lookup for /e2e/sessions/simulate_hook
 	// and /e2e/sessions/__token BEFORE Start: Start spawns the serving goroutine,
 	// so these writes must happen-before it to avoid a data race.

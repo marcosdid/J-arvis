@@ -94,6 +94,23 @@ export function installE2EShim(): void {
     GetTranscript: (id: string) => postJson(`${base}/e2e/sessions/transcript`, { id }),
   } as unknown as Record<string, AnyFn>;
 
+  const runsAPI = {
+    Start: (taskId: string) => postJson(`${base}/e2e/runs/start`, { task_id: taskId }),
+    Get: (taskId: string) => postJson(`${base}/e2e/runs/get`, { task_id: taskId }),
+    GetLatest: (taskId: string) => postJson(`${base}/e2e/runs/get_latest`, { task_id: taskId }),
+    Stop: (runId: string) => postJson(`${base}/e2e/runs/stop`, { run_id: runId }),
+    LocalHTTPBase: () => Promise.resolve(base),
+  } as unknown as Record<string, AnyFn>;
+
+  const bootstrapAPI = {
+    Start: (taskId: string) => postJson(`${base}/e2e/bootstrap/start`, { task_id: taskId }),
+    Cancel: (taskId: string) => postJson(`${base}/e2e/bootstrap/cancel`, { task_id: taskId }),
+  } as unknown as Record<string, AnyFn>;
+
+  const catalogAPI = {
+    Get: () => postJson(`${base}/e2e/catalog/get`, {}),
+  } as unknown as Record<string, AnyFn>;
+
   window.go = {
     api: {
       TasksAPI: tasksAPI,
@@ -102,6 +119,9 @@ export function installE2EShim(): void {
       HealthAPI: healthAPI,
       WorktreesAPI: worktreesAPI,
       SessionsAPI: sessionsAPI,
+      RunsAPI: runsAPI,
+      BootstrapAPI: bootstrapAPI,
+      CatalogAPI: catalogAPI,
     },
   };
 
