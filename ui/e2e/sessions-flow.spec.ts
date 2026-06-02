@@ -108,4 +108,104 @@ test.describe('sessions flow', () => {
     expect(found.status).toBe('done');
     expect(found.ended_at).not.toBeNull();
   });
+
+  // SES-03 — second start on the same task must be refused.
+  test('start rejects when the task already has an active session', async ({ page }) => {
+    await openApp(page);
+    const port = e2ePort();
+    const path = await initGitFixture({ name: `dbl-${Date.now()}` });
+    const proj = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/projects/create`, {
+        data: { name: `proj-${Date.now()}`, path },
+      })
+    ).json();
+    const task = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/tasks/create`, {
+        data: { project_id: proj.id, title: 'dbl-session' },
+      })
+    ).json();
+
+    const first = await page.request.post(`http://127.0.0.1:${port}/e2e/sessions/start`, {
+      data: { task_id: task.id },
+    });
+    expect(first.ok()).toBeTruthy();
+    const second = await page.request.post(`http://127.0.0.1:${port}/e2e/sessions/start`, {
+      data: { task_id: task.id },
+    });
+    expect(second.ok()).toBeFalsy(); // already has an active session
+  });
+
+  // SES-29 — starting a session auto-creates the task's worktree (exercises CreateForTask).
+  test('starting a session auto-creates a worktree for the task', async ({ page }) => {
+    await openApp(page);
+    const port = e2ePort();
+    const path = await initGitFixture({ name: `wtauto-${Date.now()}` });
+    const proj = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/projects/create`, {
+        data: { name: `proj-${Date.now()}`, path },
+      })
+    ).json();
+    const task = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/tasks/create`, {
+        data: { project_id: proj.id, title: 'wt-autocreate' },
+      })
+    ).json();
+
+    const before = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/worktrees/list_by_project`, {
+        data: { project_id: proj.id },
+      })
+    ).json();
+    expect(before.length).toBe(0);
+
+    const sess = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/sessions/start`, {
+        data: { task_id: task.id },
+      })
+    ).json();
+    expect(sess.id).toBeTruthy();
+
+    const after = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/worktrees/list_by_project`, {
+        data: { project_id: proj.id },
+      })
+    ).json();
+    expect(after.length).toBeGreaterThan(0);
+  });
+
+  // SES-47 — discarding a task with a live session stops that session.
+  test('discarding a task with an active session stops the session', async ({ page }) => {
+    await openApp(page);
+    const port = e2ePort();
+    const path = await initGitFixture({ name: `disc-${Date.now()}` });
+    const proj = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/projects/create`, {
+        data: { name: `proj-${Date.now()}`, path },
+      })
+    ).json();
+    const task = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/tasks/create`, {
+        data: { project_id: proj.id, title: 'disc-session' },
+      })
+    ).json();
+    const sess = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/sessions/start`, {
+        data: { task_id: task.id },
+      })
+    ).json();
+    expect(sess.id).toBeTruthy();
+
+    const res = await page.request.post(`http://127.0.0.1:${port}/e2e/tasks/discard`, {
+      data: { id: task.id },
+    });
+    expect(res.status()).toBe(204);
+
+    const after = await (
+      await page.request.post(`http://127.0.0.1:${port}/e2e/sessions/list_by_task`, {
+        data: { task_id: task.id },
+      })
+    ).json();
+    const found = after.find((s: { id: string; status: string }) => s.id === sess.id);
+    expect(found?.status).toBe('done');
+  });
 });
