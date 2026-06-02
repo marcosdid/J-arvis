@@ -75,7 +75,7 @@ func main() {
 
 	gitOps := jgit.NewSubprocessOps()
 	projectsSvc := core.NewProjectsService(projectsRepo, repositoriesRepo, tasksRepo, lazyBus)
-	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, gitOps, lazyBus)
+	worktreesSvc := core.NewWorktreesService(worktreesRepo, repositoriesRepo, projectsRepo, tasksRepo, gitOps, lazyBus)
 
 	claudeHome := os.Getenv("JARVIS_CLAUDE_HOME")
 	if claudeHome == "" {
