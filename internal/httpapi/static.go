@@ -16,8 +16,9 @@ func SPAHandler(dist fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if p != "" {
-			if _, err := fs.Stat(dist, p); err != nil {
-				r.URL.Path = "/" // SPA fallback
+			info, err := fs.Stat(dist, p)
+			if err != nil || info.IsDir() {
+				r.URL.Path = "/" // unknown route or directory → SPA index, never a listing
 			}
 		}
 		fileServer.ServeHTTP(w, r)
