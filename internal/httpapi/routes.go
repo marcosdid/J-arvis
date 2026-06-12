@@ -55,9 +55,12 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// Content-Type must precede WriteHeader: headers set after the status line
+// is written are silently discarded on a real connection.
 func writeErr(w http.ResponseWriter, status int, err error) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	writeJSON(w, map[string]string{"error": err.Error()})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
 
 func (s *Server) mount(mux *http.ServeMux) {
