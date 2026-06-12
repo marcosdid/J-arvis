@@ -22,6 +22,7 @@ func RequireToken(token string, next http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 	})
 }

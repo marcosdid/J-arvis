@@ -38,6 +38,9 @@ func TestRequireToken(t *testing.T) {
 			if rec.Code != tc.want {
 				t.Fatalf("%s: got %d want %d", tc.name, rec.Code, tc.want)
 			}
+			if tc.name == "no token" && rec.Header().Get("Content-Type") != "application/json" {
+				t.Fatalf("401 Content-Type: got %q want application/json", rec.Header().Get("Content-Type"))
+			}
 		})
 	}
 }
