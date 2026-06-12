@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -28,6 +29,7 @@ import (
 	"github.com/marcosdid/jarvis/internal/events"
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
+	"github.com/marcosdid/jarvis/internal/httpapi"
 	"github.com/marcosdid/jarvis/internal/localhttp"
 	"github.com/marcosdid/jarvis/internal/master"
 	"github.com/marcosdid/jarvis/internal/mcp"
@@ -57,11 +59,10 @@ func main() {
 		log.Fatalf("store.Migrate: %v", err)
 	}
 
-	// LazyEmitter resolves to an in-memory FakeEmitter — events fire but
-	// nothing surfaces to JS (the shim's runtime.EventsOn keeps them
-	// in-memory either way). Sufficient for current E2E coverage.
-	fake := &events.FakeEmitter{}
-	lazyBus := &events.LazyEmitter{Resolve: func() events.Emitter { return fake }}
+	// Real SSE emitter so the e2e UI receives live events over /api/events,
+	// exactly like production. LazyEmitter keeps the constructor wiring uniform.
+	sseBus := events.NewSSEEmitter()
+	lazyBus := &events.LazyEmitter{Resolve: func() events.Emitter { return sseBus }}
 
 	tasksRepo := store.NewTasksRepo(db)
 	projectsRepo := store.NewProjectsRepo(db)
@@ -123,6 +124,9 @@ func main() {
 	)
 
 	mcpToken := mcp.NewBearerToken()
+	// appToken is the UI↔localhttp credential, distinct from mcpToken (which
+	// guards /api/mcp for master-claude) — mirrors the production split.
+	appToken := mcp.NewBearerToken()
 	mcpSrv := mcp.NewServer(tasksSvc, projectsSvc, catalogRoot, mcpToken)
 	if err := localSrv.Mount("/api/mcp", mcpSrv.Handler()); err != nil {
 		log.Fatalf("mount mcp: %v", err)
@@ -133,24 +137,15 @@ func main() {
 		log.Fatalf("mount runs logs: %v", err)
 	}
 
-	hookPort, err := localSrv.Start()
-	if err != nil {
-		log.Fatalf("local http: %v", err)
-	}
-	log.Printf("local http listening on 127.0.0.1:%d", hookPort)
-	defer func() { _ = localSrv.Stop() }()
-
-	// Skip orphan cleanup if Docker is unavailable in CI (e.g. set
-	// JARVIS_E2E_NO_DOCKER=1 in the harness).
-	if os.Getenv("JARVIS_E2E_NO_DOCKER") != "1" {
-		if err := runsSvc.CleanupOrphans(context.Background()); err != nil {
-			log.Printf("orphan run cleanup: %v", err)
-		}
-	}
+	// All APIs + the /api/* mount MUST be wired before Start(): localhttp.Mount
+	// returns ErrAlreadyStarted once the listener is live. masterSvc's BaseURL
+	// closure is lazy, so it's safe to construct here even before Start.
 	tasksAPI := api.NewTasksAPI(tasksSvc)
 	projectsAPI := api.NewProjectsAPI(projectsSvc)
 	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
 	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
+	bootstrapAPI := api.NewBootstrapAPI(bootstrapSvc)
+	catalogAPI := api.NewCatalogAPI(catalogRoot)
 
 	masterRepo := store.NewMasterSessionRepo(db)
 	masterSvc := core.NewMasterService(
@@ -164,9 +159,41 @@ func main() {
 	masterAPI := api.NewMasterAPI(masterSvc, lazyBus)
 	defer func() { _ = masterSvc.Stop(context.Background()) }()
 
-	bootstrapAPI := api.NewBootstrapAPI(bootstrapSvc)
-	catalogAPI := api.NewCatalogAPI(catalogRoot)
-	srv := api.NewE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI, runsAPI, bootstrapAPI, catalogAPI, worktreesSvc)
+	// e2e doesn't need a real sandbox probe — report healthy.
+	healthAPI := api.NewHealthAPI(func() (bool, string) { return true, "" })
+
+	httpSrv := httpapi.New(httpapi.Deps{
+		Token: appToken.Value(),
+		Tasks: tasksAPI, Projects: projectsAPI, Worktrees: worktreesAPI,
+		Sessions: sessionsAPI, Master: masterAPI, Runs: runsAPI,
+		Bootstrap: bootstrapAPI, Catalog: catalogAPI, Health: healthAPI,
+		Events: sseBus.Handler(),
+	})
+	if err := localSrv.Mount("/api/", httpSrv.Handler()); err != nil {
+		log.Fatalf("mount httpapi: %v", err)
+	}
+
+	hookPort, err := localSrv.Start()
+	if err != nil {
+		log.Fatalf("local http: %v", err)
+	}
+	log.Printf("local http listening on 127.0.0.1:%d", hookPort)
+	defer func() { _ = localSrv.Stop() }()
+
+	// Scrape lines for the Playwright harness: the e2e UI talks to /api/* on
+	// localSrv exactly like production.
+	fmt.Printf("JARVIS_PORT=%d\n", hookPort)
+	fmt.Printf("JARVIS_TOKEN=%s\n", appToken.Value())
+
+	// Skip orphan cleanup if Docker is unavailable in CI (e.g. set
+	// JARVIS_E2E_NO_DOCKER=1 in the harness).
+	if os.Getenv("JARVIS_E2E_NO_DOCKER") != "1" {
+		if err := runsSvc.CleanupOrphans(context.Background()); err != nil {
+			log.Printf("orphan run cleanup: %v", err)
+		}
+	}
+
+	srv := api.NewE2EServer(worktreesSvc)
 	// Wire the hook proxy + token reverse-lookup for /e2e/sessions/simulate_hook
 	// and /e2e/sessions/__token BEFORE Start: Start spawns the serving goroutine,
 	// so these writes must happen-before it to avoid a data race.

@@ -222,8 +222,6 @@ func main() {
 		}
 	}
 
-	startE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI)
-
 	cliFlags := osintegration.ParseFlags()
 	_ = cliFlags // Focus flag is informational; handler always focuses regardless
 	trayAvailable := osintegration.PreflightOK()

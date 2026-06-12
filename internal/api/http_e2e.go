@@ -18,36 +18,22 @@ import (
 	"github.com/marcosdid/jarvis/internal/hooks"
 )
 
-// E2EServer exposes the Wails-bound APIs over HTTP so Playwright can
-// drive the UI through a headless browser. Only compiled with build tag
-// `e2e_http`. Listens on 127.0.0.1:0 (ephemeral) and prints the port
-// to stdout as `E2E_HTTP_PORT=<n>` so harnesses can scrape it.
+// E2EServer exposes test-only fixture + hook-simulation routes over HTTP so
+// Playwright can seed git repos, worktrees and manifests and replay hook
+// callbacks. The app APIs (/api/*) are served by internal/httpapi on the main
+// localhttp listener — this server only carries what httpapi cannot. Only
+// compiled with build tag `e2e_http`. Listens on 127.0.0.1:0 (ephemeral) and
+// prints the port to stdout as `E2E_HTTP_PORT=<n>` so harnesses can scrape it.
 type E2EServer struct {
-	tasks     *TasksAPI
-	projects  *ProjectsAPI
-	worktrees *WorktreesAPI
-	sessions  *SessionsAPI
-	master    *MasterAPI
-	runs      *RunsAPI
-	bootstrap *BootstrapAPI
-	catalog   *CatalogAPI
-	wtSvc     *core.WorktreesService
-	hookBase  string
-	tokenReg  *hooks.TokenRegistry
-	mu        sync.Mutex
-	listener  net.Listener
+	wtSvc    *core.WorktreesService
+	hookBase string
+	tokenReg *hooks.TokenRegistry
+	mu       sync.Mutex
+	listener net.Listener
 }
 
-func NewE2EServer(
-	tasks *TasksAPI, projects *ProjectsAPI, worktrees *WorktreesAPI,
-	sessions *SessionsAPI, master *MasterAPI, runs *RunsAPI,
-	bootstrap *BootstrapAPI, catalog *CatalogAPI, wtSvc *core.WorktreesService,
-) *E2EServer {
-	return &E2EServer{
-		tasks: tasks, projects: projects, worktrees: worktrees,
-		sessions: sessions, master: master, runs: runs,
-		bootstrap: bootstrap, catalog: catalog, wtSvc: wtSvc,
-	}
+func NewE2EServer(wtSvc *core.WorktreesService) *E2EServer {
+	return &E2EServer{wtSvc: wtSvc}
 }
 
 // SetHookBase tells the test harness where the hook routes live so simulate_hook
@@ -107,128 +93,6 @@ func writeErr(w http.ResponseWriter, status int, err error) {
 }
 
 func (s *E2EServer) mount(mux *http.ServeMux) {
-	mux.HandleFunc("POST /e2e/tasks/list", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ProjectIDs []string `json:"project_ids"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.tasks.List(req.ProjectIDs)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/tasks/create", func(w http.ResponseWriter, r *http.Request) {
-		var in CreateTaskInput
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, 400, err)
-			return
-		}
-		out, err := s.tasks.Create(in)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/tasks/patch", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID    string         `json:"id"`
-			Patch PatchTaskInput `json:"patch"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeErr(w, 400, err)
-			return
-		}
-		out, err := s.tasks.Patch(req.ID, req.Patch)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/tasks/discard", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if err := s.tasks.Discard(req.ID); err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /e2e/tasks/get", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.tasks.Get(req.ID)
-		if err != nil {
-			writeErr(w, 404, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-
-	mux.HandleFunc("POST /e2e/projects/list", func(w http.ResponseWriter, _ *http.Request) {
-		out, err := s.projects.List()
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/projects/create", func(w http.ResponseWriter, r *http.Request) {
-		var req core.CreateProjectInput
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.projects.Create(req)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/projects/delete", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if err := s.projects.Delete(req.ID); err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	mux.HandleFunc("POST /e2e/master/status", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, s.master.Status())
-	})
-
-	mux.HandleFunc("POST /e2e/worktrees/list_by_project", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ProjectID string `json:"project_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.worktrees.ListByProject(req.ProjectID)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/worktrees/delete", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if err := s.worktrees.Delete(req.ID); err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
 	mux.HandleFunc("POST /e2e/fixtures/init-git", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name    string   `json:"name"`
@@ -273,84 +137,6 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// ---- Run from Panel / Bootstrap / Catalog e2e wiring ----
-	mux.HandleFunc("POST /e2e/runs/start", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			TaskID string `json:"task_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.runs.Start(req.TaskID)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/runs/get", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			TaskID string `json:"task_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.runs.Get(req.TaskID)
-		if err != nil {
-			writeErr(w, 404, err) // no active run → UI maps to null
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/runs/get_latest", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			TaskID string `json:"task_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.runs.GetLatest(req.TaskID)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		if out == nil {
-			w.WriteHeader(http.StatusNoContent) // null latest → UI maps to null
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/runs/stop", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			RunID string `json:"run_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if err := s.runs.Stop(req.RunID); err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /e2e/bootstrap/start", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			TaskID string `json:"task_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.bootstrap.Start(req.TaskID)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/bootstrap/cancel", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			TaskID string `json:"task_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if err := s.bootstrap.Cancel(req.TaskID); err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /e2e/catalog/get", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, s.catalog.Get())
-	})
 	mux.HandleFunc("POST /e2e/fixtures/create-worktree", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			TaskID string `json:"task_id"`
@@ -383,53 +169,6 @@ func (s *E2EServer) mount(mux *http.ServeMux) {
 		writeJSON(w, map[string]string{"manifest_path": dest})
 	})
 
-	mux.HandleFunc("POST /e2e/sessions/start", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			TaskID string `json:"task_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.sessions.Start(req.TaskID)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/sessions/stop", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if err := s.sessions.Stop(req.ID); err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /e2e/sessions/list_by_task", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			TaskID string `json:"task_id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.sessions.ListByTask(req.TaskID)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
-	mux.HandleFunc("POST /e2e/sessions/transcript", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		out, err := s.sessions.GetTranscript(req.ID)
-		if err != nil {
-			writeErr(w, 500, err)
-			return
-		}
-		writeJSON(w, out)
-	})
 	mux.HandleFunc("POST /e2e/sessions/simulate_hook", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Event   string         `json:"event"` // Notification|PreToolUse|Stop
