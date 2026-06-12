@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/marcosdid/jarvis/internal/events"
 	jgit "github.com/marcosdid/jarvis/internal/git"
 	"github.com/marcosdid/jarvis/internal/hooks"
+	"github.com/marcosdid/jarvis/internal/httpapi"
 	"github.com/marcosdid/jarvis/internal/localhttp"
 	"github.com/marcosdid/jarvis/internal/master"
 	"github.com/marcosdid/jarvis/internal/mcp"
@@ -129,6 +131,10 @@ func main() {
 	)
 
 	mcpToken := mcp.NewBearerToken()
+	// appToken is the UI↔localhttp credential — distinct from mcpToken, which
+	// guards /api/mcp for master-claude. Rotating one must not affect the other.
+	appToken := mcp.NewBearerToken()
+	sseBus := events.NewSSEEmitter()
 	mcpSrv := mcp.NewServer(tasksSvc, projectsSvc, catalogRoot, mcpToken)
 	if err := localSrv.Mount("/api/mcp", mcpSrv.Handler()); err != nil {
 		log.Fatalf("mount mcp: %v", err)
@@ -139,14 +145,59 @@ func main() {
 		log.Fatalf("mount runs logs: %v", err)
 	}
 
+	// All APIs + the /api/* and / mounts MUST be wired before Start(): Mount
+	// returns ErrAlreadyStarted once the listener is live. sandboxOK/sandboxReason
+	// are declared here so healthAPI's closure can capture them by reference —
+	// the Start block below sets their final values before any Snapshot call.
 	sandboxOK := true
 	var sandboxReason string
+
+	tasksAPI := api.NewTasksAPI(tasksSvc)
+	catalogAPI := api.NewCatalogAPI(catalogRoot)
+	projectsAPI := api.NewProjectsAPI(projectsSvc)
+	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
+	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
+	bootstrapAPI := api.NewBootstrapAPI(bootstrapSvc)
+
+	masterRepo := store.NewMasterSessionRepo(db)
+	masterSvc := core.NewMasterService(
+		masterRepo,
+		master.New(),
+		func() string { return localSrv.BaseURL() },
+		mcpToken.Value(),
+		masterCwdDefault(),
+		lazyBus,
+	)
+	masterAPI := api.NewMasterAPI(masterSvc, lazyBus)
+	healthAPI := api.NewHealthAPI(func() (bool, string) {
+		return sandboxOK, sandboxReason
+	})
+
+	httpSrv := httpapi.New(httpapi.Deps{
+		Token: appToken.Value(),
+		Tasks: tasksAPI, Projects: projectsAPI, Worktrees: worktreesAPI,
+		Sessions: sessionsAPI, Master: masterAPI, Runs: runsAPI,
+		Bootstrap: bootstrapAPI, Catalog: catalogAPI, Health: healthAPI,
+		Events: sseBus.Handler(), // inside the mux: inherits CORS+token
+	})
+	if err := localSrv.Mount("/api/", httpSrv.Handler()); err != nil {
+		log.Fatalf("mount httpapi: %v", err)
+	}
+	dist, derr := fs.Sub(assets, "ui/dist")
+	if derr != nil {
+		log.Fatalf("ui dist sub fs: %v", derr)
+	}
+	if err := localSrv.Mount("/", httpapi.SPAHandler(dist)); err != nil {
+		log.Fatalf("mount ui: %v", err)
+	}
+
 	if port, err := localSrv.Start(); err != nil {
 		log.Printf("local http bind failed: %v", err)
 		sandboxOK = false
 		sandboxReason = "local http server failed to bind: " + err.Error()
 	} else {
 		log.Printf("local http listening on 127.0.0.1:%d", port)
+		app.SetServerConfig(localSrv.BaseURL(), appToken.Value())
 		// Boot-time orphan cleanup (best-effort) — kills containers/networks
 		// that survived a previous crash. Skipped silently if docker is gone.
 		if err := runsSvc.CleanupOrphans(context.Background()); err != nil {
@@ -170,27 +221,6 @@ func main() {
 			sandboxReason = sandbox.DiagnoseSandbox()
 		}
 	}
-
-	tasksAPI := api.NewTasksAPI(tasksSvc)
-	catalogAPI := api.NewCatalogAPI(catalogRoot)
-	projectsAPI := api.NewProjectsAPI(projectsSvc)
-	worktreesAPI := api.NewWorktreesAPI(worktreesSvc)
-	sessionsAPI := api.NewSessionsAPI(sessionsSvc)
-	bootstrapAPI := api.NewBootstrapAPI(bootstrapSvc)
-
-	masterRepo := store.NewMasterSessionRepo(db)
-	masterSvc := core.NewMasterService(
-		masterRepo,
-		master.New(),
-		func() string { return localSrv.BaseURL() },
-		mcpToken.Value(),
-		masterCwdDefault(),
-		lazyBus,
-	)
-	masterAPI := api.NewMasterAPI(masterSvc, lazyBus)
-	healthAPI := api.NewHealthAPI(func() (bool, string) {
-		return sandboxOK, sandboxReason
-	})
 
 	startE2EServer(tasksAPI, projectsAPI, worktreesAPI, sessionsAPI, masterAPI)
 
@@ -240,7 +270,7 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 3, G: 5, B: 3, A: 1},
 		OnStartup: func(c context.Context) {
 			app.startup(c)
-			emitter := events.Emitter(events.NewWailsEmitter(c))
+			emitter := events.Emitter(events.MultiEmitter{events.NewWailsEmitter(c), sseBus})
 			realBus.Store(&emitter)
 			ctxCopy := c
 			appCtxPtr.Store(&ctxCopy) // make ctx visible to other goroutines
