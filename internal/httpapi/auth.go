@@ -3,7 +3,10 @@
 // transport (spec: 2026-06-12-f11-electron-http-first-design.md).
 package httpapi
 
-import "net/http"
+import (
+	"crypto/subtle"
+	"net/http"
+)
 
 // RequireToken guards routes with the boot-generated app token. Accepts
 // `Authorization: Bearer <t>` or `?token=<t>` — EventSource cannot set
@@ -15,13 +18,14 @@ func RequireToken(token string, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if token != "" &&
-			(r.Header.Get("Authorization") == "Bearer "+token ||
-				r.URL.Query().Get("token") == token) {
+		authOK := subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) == 1
+		queryOK := subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("token")), []byte(token)) == 1
+		if token != "" && (authOK || queryOK) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 	})

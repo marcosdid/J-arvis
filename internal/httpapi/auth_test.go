@@ -36,9 +36,9 @@ func TestRequireToken(t *testing.T) {
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 			if rec.Code != tc.want {
-				t.Fatalf("%s: got %d want %d", tc.name, rec.Code, tc.want)
+				t.Fatalf("got %d want %d", rec.Code, tc.want)
 			}
-			if tc.name == "no token" && rec.Header().Get("Content-Type") != "application/json" {
+			if tc.want == http.StatusUnauthorized && rec.Header().Get("Content-Type") != "application/json" {
 				t.Fatalf("401 Content-Type: got %q want application/json", rec.Header().Get("Content-Type"))
 			}
 		})
